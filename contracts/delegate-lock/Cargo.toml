@@ -1,0 +1,15 @@
+[package]
+name = "delegate-lock"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ckb-hash = { version = "0.202.0", default-features = false, features = [
+	"ckb-contract",
+] }
+ckb-std = "1.0.1"
+k256 = { version = "0.13.4", default-features = false, features = ["ecdsa"] }
+
+[features]
+library = []
+native-simulator = ["library", "ckb-std/native-simulator"]
