@@ -1,0 +1,113 @@
+# Delegate Lock
+
+Delegate Lock is a lock script that proxies verification to another script stored in a separate cell. This allows users to update the ownership or unlocking logic of cells without changing the lock script hash, preserving the cell's on-chain identity.
+
+## Data Structure
+
+### Delegate Lock Args
+
+The `args` field stores the first 20 bytes (blake160) of the [Type ID](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#type-id) used by the cell containing the actual lock script. This truncation follows the same convention as other CKB lock scripts and provides sufficient collision resistance while minimizing on-chain storage.
+
+### Witness
+
+Delegate Lock delegates the verification logic. Therefore, the witness structure should follow the format expected by the **actual lock script**. Delegate Lock itself does not impose additional witness requirements.
+
+## Usage Flow
+
+### Lock a Cell
+
+First, create a Type ID cell to store the actual lock script:
+
+```text
+Inputs:
+    Seed Cell
+Outputs:
+    Type ID Cell:
+        Lock: <lock script for Type ID cell itself>
+        Type:
+            code_hash: <Type ID code hash>
+            hash_type: type
+            args: <type id>
+        Data: <actual lock script, molecule-encoded>
+            code_hash: <actual lock script code hash>
+            hash_type: <actual lock script hash type>
+            args: <actual lock script args>
+```
+
+Second, lock the target cell using Delegate Lock, referencing the Type ID cell:
+
+```text
+Outputs:
+    Target Cell:
+        Lock:
+            code_hash: <Delegate Lock code hash>
+            hash_type: type
+            args: <first 20 bytes of type id>
+```
+
+### Unlock a Cell
+
+To unlock the cell, the transaction must include the Type ID cell and the actual lock script binary cell as dependencies:
+
+```text
+CellDeps:
+    Type ID Cell:
+        Type:
+            code_hash: <Type ID code hash>
+            hash_type: type
+            args: <type id>
+        Data: <actual lock script, molecule-encoded>
+            code_hash: <actual lock script code hash>
+            hash_type: <actual lock script hash type>
+            args: <actual lock script args>
+    Actual Lock Script Binary Cell:
+        Data: <actual lock script binary>
+Inputs:
+    Delegate Lock Cell:
+        Lock:
+            code_hash: <Delegate Lock code hash>
+            hash_type: type
+            args: <first 20 bytes of type id>
+Witnesses:
+    <as required by the actual lock script>
+```
+
+### Update Ownership
+
+To change the ownership, update the data in the Type ID cell.
+
+```text
+Inputs:
+    Old Type ID Cell:
+        Lock: <lock script for Type ID cell itself>
+        Type:
+            code_hash: <Type ID code hash>
+            hash_type: type
+            args: <type id>
+        Data: <old actual lock script, molecule-encoded>
+Outputs:
+    New Type ID Cell:
+        Lock: <lock script for Type ID cell itself>
+        Type:
+            code_hash: <Type ID code hash>
+            hash_type: type
+            args: <type id>
+        Data: <new actual lock script, molecule-encoded>
+```
+
+## Delegation Convention
+
+A lock script typically loads its arguments via the [`ckb_load_script`](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0009-vm-syscalls/0009-vm-syscalls.md#load-script) syscall. However, when used with Delegate Lock, the actual lock script runs in Delegate Lock's context, so `ckb_load_script` returns the Delegate Lock script instead of the expected arguments.
+
+To address this, Delegate Lock uses the following convention when invoking the actual lock script:
+
+- It uses [`ckb_exec`](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0034-vm-syscalls-2/0034-vm-syscalls-2.md#exec) to execute the actual lock script.
+- `source` is set to `CKB_SOURCE_CELL_DEP` (3), `place` is set to 0 (cell data), and `bounds` is set to 0 (entire data).
+- The lock script arguments from the Type ID cell data are passed via `argc` and `argv` parameters of `ckb_exec`.
+
+Therefore, the actual lock script must read its arguments from `argc` and `argv` instead of `ckb_load_script`. Since most existing lock scripts use `ckb_load_script`, modified versions of common lock scripts (e.g., secp256k1, multisig) are provided in this repository.
+
+## Security Considerations
+
+- **Type ID Cell Protection**: The security of cells locked by Delegate Lock depends entirely on the lock script of the Type ID cell. If an attacker can modify the Type ID cell's data, they gain control over all cells referencing that Type ID. Choose a secure lock script for the Type ID cell.
+- **Actual Lock Script Trust**: The actual lock script executed via `ckb_exec` must be trusted. Delegate Lock does not verify the correctness of the delegated script beyond matching the Type ID.
