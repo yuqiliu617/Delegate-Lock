@@ -1,0 +1,15 @@
+[package]
+name = "blake160-delegate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ckb-std = "1.0.1"
+ckb-hash = { version = "1.0.1", default-features = false, features = [
+	"ckb-contract",
+] }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "alloc"] }
+
+[features]
+library = []
+native-simulator = ["library", "ckb-std/native-simulator"]
