@@ -28,7 +28,6 @@ ckb_std::entry!(program_entry);
 ckb_std::default_alloc!(16384, 1258306, 64);
 
 const HASH_SIZE: usize = 32;
-const TYPE_ID_SCRIPT_LEN: usize = HASH_SIZE + 1 + HASH_SIZE;
 const TYPE_ID_PREFIX_SIZE: usize = 20;
 
 pub const TYPE_ID_CODE_HASH: [u8; HASH_SIZE] = [
@@ -38,15 +37,15 @@ pub const TYPE_ID_CODE_HASH: [u8; HASH_SIZE] = [
 
 /// Find a cell in cell_deps whose type script args starts with the given type_id prefix.
 fn find_type_id_cell(type_id_prefix: &[u8]) -> Result<usize, Error> {
-    let mut buf = [0u8; TYPE_ID_SCRIPT_LEN];
+    let mut buf = [0u8; 256];
     for index in 0.. {
         // Try to load the type script of the cell at this index
         let result =
             syscalls::load_cell_by_field(&mut buf, 0, index, Source::CellDep, CellField::Type);
         match result {
-            Ok(len) if len == TYPE_ID_SCRIPT_LEN => {
-                if ScriptReader::verify(&buf, false).is_ok() {
-                    let type_script = Script::new_unchecked(Bytes::copy_from_slice(&buf));
+            Ok(len) => {
+                if ScriptReader::verify(&buf[..len], false).is_ok() {
+                    let type_script = Script::new_unchecked(Bytes::copy_from_slice(&buf[..len]));
                     let code_hash: [u8; 32] = type_script.code_hash().unpack();
                     if code_hash == TYPE_ID_CODE_HASH
                         && type_script.hash_type() == ScriptHashType::Type.into()
