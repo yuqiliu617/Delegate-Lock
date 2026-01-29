@@ -30,13 +30,16 @@ ckb_std::default_alloc!(16384, 1258306, 64);
 const HASH_SIZE: usize = 32;
 const TYPE_ID_PREFIX_SIZE: usize = 20;
 
-pub const TYPE_ID_CODE_HASH: [u8; HASH_SIZE] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 89, 80, 69, 95,
-    73, 68,
+type Hash = [u8; HASH_SIZE];
+type TypeIdPrefix = [u8; TYPE_ID_PREFIX_SIZE];
+
+pub const TYPE_ID_CODE_HASH: Hash = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 89, 80, 69, 95, 73, 68
 ];
 
 /// Find a cell in cell_deps whose type script args starts with the given type_id prefix.
-fn find_type_id_cell(type_id_prefix: &[u8]) -> Result<usize, Error> {
+fn find_type_id_cell(type_id_prefix: &TypeIdPrefix) -> Result<usize, Error> {
     let mut buf = [0u8; 256];
     for index in 0.. {
         // Try to load the type script of the cell at this index
@@ -46,7 +49,7 @@ fn find_type_id_cell(type_id_prefix: &[u8]) -> Result<usize, Error> {
             Ok(len) => {
                 if ScriptReader::verify(&buf[..len], false).is_ok() {
                     let type_script = Script::new_unchecked(Bytes::copy_from_slice(&buf[..len]));
-                    let code_hash: [u8; 32] = type_script.code_hash().unpack();
+                    let code_hash: Hash = type_script.code_hash().unpack();
                     if code_hash == TYPE_ID_CODE_HASH
                         && type_script.hash_type() == ScriptHashType::Type.into()
                         && type_script.args().raw_data().starts_with(type_id_prefix)
@@ -71,7 +74,7 @@ const HEX_CHARS: [u8; 16] = *b"0123456789abcdef";
 
 /// Encode bytes as hex string with null terminator for use as CStr.
 fn encode_hex(data: &[u8]) -> CString {
-    let mut hex = Vec::with_capacity(data.len() * 2 + 1);
+    let mut hex = Vec::with_capacity(data.len() << 1 | 1);
     for &b in data {
         hex.push(HEX_CHARS[(b >> 4) as usize]);
         hex.push(HEX_CHARS[(b & 0xf) as usize]);
@@ -81,7 +84,7 @@ fn encode_hex(data: &[u8]) -> CString {
 
 /// Execute the actual lock script using ckb_exec.
 fn exec_actual_lock_script(script: &Script) -> Result<(), Error> {
-    let code_hash: [u8; 32] = script.code_hash().unpack();
+    let code_hash: Hash = script.code_hash().unpack();
     let hash_type_byte: u8 = script.hash_type().into();
     let hash_type = match hash_type_byte {
         0 => ScriptHashType::Data,
@@ -94,7 +97,7 @@ fn exec_actual_lock_script(script: &Script) -> Result<(), Error> {
     let args_cstr = encode_hex(&script_args);
     let argv: [&CStr; 1] = [&args_cstr];
     exec_cell(&code_hash, hash_type, &argv)?;
-    Ok(())
+    panic!("unreachable");
 }
 
 fn run() -> Result<(), Error> {
@@ -103,7 +106,8 @@ fn run() -> Result<(), Error> {
     if args.len() != TYPE_ID_PREFIX_SIZE {
         return Err(Error::ArgsInvalid);
     }
-    let cell_index = find_type_id_cell(&args)?;
+    let verified_args: TypeIdPrefix = (&args[..]).try_into().map_err(|_| Error::ArgsInvalid)?;
+    let cell_index = find_type_id_cell(&verified_args)?;
     let cell_data = load_cell_data(cell_index, Source::CellDep)?;
     ScriptReader::verify(&cell_data, false).map_err(|_| Error::Encoding)?;
     let actual_script = Script::new_unchecked(cell_data.into());
