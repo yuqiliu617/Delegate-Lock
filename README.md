@@ -104,8 +104,53 @@ To address this, Delegate Lock uses the following convention when invoking the a
 - It uses [`ckb_exec`](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0034-vm-syscalls-2/0034-vm-syscalls-2.md#exec) to execute the actual lock script.
 - `source` is set to `CKB_SOURCE_CELL_DEP` (3), `place` is set to 0 (cell data), and `bounds` is set to 0 (entire data).
 - The lock script arguments from the Type ID cell data are passed via `argc` and `argv` parameters of `ckb_exec`.
+    - `argc` is always 1
+    - `argv[0]` contains the hex-encoded script args from the Type ID cell data.
+- Delegate lock itself does not impose any additional witness requirements. The actual lock script can load its witness as usual.
 
 Therefore, the actual lock script must read its arguments from `argc` and `argv` instead of `ckb_load_script`. Since most existing lock scripts use `ckb_load_script`, modified versions of common lock scripts (e.g., secp256k1, multisig) are provided in this repository.
+
+To adapt an existing lock script to work with Delegate Lock, follow the following migration guide:
+```rust
+// Old way: load from script directly
+fn run() -> Result<(), Error> {
+    let script = ckb_std::high_level::load_script()?;
+    let args: Bytes = script.args().unpack();
+    // ...
+}
+```
+```rust
+// New way: load from argv
+fn run() -> Result<(), Error> {
+    let argv = ckb_std::env::argv();
+    if argv.len() != 1 {
+        return Err(Error::ArgsInvalid);
+    }
+    let args_hex = argv[0].to_bytes();
+    let args = decode_hex(args_hex)?;
+    // ...
+}
+fn decode_hex(hex: &[u8]) -> Result<Vec<u8>, Error> {
+    if hex.len() % 2 != 0 {
+        return Err(Error::ArgsInvalid);
+    }
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for chunk in hex.chunks(2) {
+        let high = hex_digit_to_value(chunk[0])?;
+        let low = hex_digit_to_value(chunk[1])?;
+        bytes.push((high << 4) | low);
+    }
+    Ok(bytes)
+}
+fn hex_digit_to_value(c: u8) -> Result<u8, Error> {
+    match c {
+        b'0'..=b'9' => Ok(c - b'0'),
+        b'a'..=b'f' => Ok(c - b'a' + 10),
+        b'A'..=b'F' => Ok(c - b'A' + 10),
+        _ => Err(Error::ArgsInvalid),
+    }
+}
+```
 
 ## Security Considerations
 
