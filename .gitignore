@@ -1,5 +1,6 @@
 /build
 /target
 /tests/failed_txs
+/specs/cells
 
 .vscode
