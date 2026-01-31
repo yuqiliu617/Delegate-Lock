@@ -1,0 +1,10 @@
+root = true
+
+[scripts/**]
+end_of_line = lf
+
+[**/Makefile]
+end_of_line = lf
+
+[*.sh]
+end_of_line = lf
