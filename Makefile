@@ -37,6 +37,9 @@ SECP256K1_SRC := deps/secp256k1/src/ecmult_static_pre_context.h
 # Docker image for C script builds (official CKB RISC-V toolchain)
 C_BUILDER_DOCKER := nervos/ckb-riscv-gnu-toolchain@sha256:7b168b4b109a0f741078a71b7c4dddaf1d283a5244608f7851f5714fbad273ba
 
+# C_BUILD_METHOD: native or docker (default: docker)
+C_BUILD_METHOD ?= docker
+
 ifeq (release,$(MODE))
 	MODE_ARGS := --release
 endif
@@ -51,11 +54,19 @@ export BUILD_DIR
 
 default: build test
 
-build:
+# Unified build target: builds both C and Rust scripts
+build: build-c build-rust-no-clean
+
+# Build Rust contracts only
+build-rust:
 	@if [ "x$(CLEAN_BUILD_DIR_FIRST)" = "xtrue" ]; then \
 		echo "Cleaning $(BUILD_DIR) directory..."; \
 		rm -rf $(BUILD_DIR); \
 	fi
+	$(MAKE) build-rust-no-clean
+
+# Build Rust without cleaning
+build-rust-no-clean:
 	mkdir -p $(BUILD_DIR)
 	@set -eu; \
 	if [ "x$(CONTRACT)" = "x" ]; then \
@@ -108,12 +119,20 @@ cargo:
 # C Script Build Targets
 # ============================================
 
-# Build all C scripts (requires RISC-V toolchain with newlib, use c-build-docker on Windows)
-c-build: $(BUILD_DIR)/secp256k1_blake160_sighash_all $(BUILD_DIR)/secp256k1_blake160_multisig_all
+# Build C scripts (use C_BUILD_METHOD=native or C_BUILD_METHOD=docker, default: docker)
+build-c:
+	@if [ "$(C_BUILD_METHOD)" = "native" ]; then \
+		$(MAKE) build-c-native; \
+	else \
+		$(MAKE) build-c-docker; \
+	fi
 
-# Build C scripts via Docker (recommended on Windows)
-c-build-docker:
-	docker run --rm -v `pwd`:/code $(C_BUILDER_DOCKER) bash -c "cd /code && make c-build"
+# Build all C scripts natively (requires RISC-V toolchain with newlib)
+build-c-native: $(BUILD_DIR)/secp256k1_blake160_sighash_all $(BUILD_DIR)/secp256k1_blake160_multisig_all
+
+# Build C scripts via Docker
+build-c-docker:
+	docker run --rm -v `pwd`:/code $(C_BUILDER_DOCKER) bash -c "cd /code && make build-c-native"
 
 $(BUILD_DIR)/secp256k1_blake160_sighash_all: c/secp256k1_blake160_sighash_all.c c/protocol.h c/common.h c/utils.h build/secp256k1_data_info.h $(SECP256K1_SRC)
 	mkdir -p $(BUILD_DIR)
@@ -202,4 +221,4 @@ CHECKSUM_FILE := build/checksums-$(MODE).txt
 checksum: build
 	shasum -a 256 build/$(MODE)/* > $(CHECKSUM_FILE)
 
-.PHONY: build test check clippy fmt cargo clean prepare checksum c-build c-build-docker
+.PHONY: build build-rust build-rust-no-clean build-c build-c-native build-c-docker test check clippy fmt cargo clean prepare checksum
