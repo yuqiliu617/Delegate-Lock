@@ -44,6 +44,7 @@
 #include "common.h"
 #include "protocol.h"
 #include "secp256k1_helper.h"
+#include "utils.h"
 
 // Common definitions here, one important limitation, is that this lock script only works
 // with scripts and witnesses that are no larger than 32KB. We believe this should be enough
@@ -76,34 +77,18 @@
 // current lock script, should be a [WitnessArgs](https://github.com/nervosnetwork/ckb/blob/1df5f2c1cbf07e04622fb8faa5b152c1af7ae341/util/types/schemas/blockchain.mol#L106)
 // object in molecule serialization format. The lock field of said WitnessArgs object should
 // contain a 65-byte recoverable signature to prove ownership.
-int main() {
+int main(int argc, char* argv[]) {
   int ret;
   uint64_t len = 0;
   unsigned char temp[TEMP_SIZE];
   unsigned char lock_bytes[SIGNATURE_SIZE];
 
-  // First let's load and extract script args part, which is also the blake160 hash of public
-  // key from current running script.
-  unsigned char script[SCRIPT_SIZE];
-  len = SCRIPT_SIZE;
-  ret = ckb_load_script(script, &len, 0);
-  if (ret != CKB_SUCCESS) {
-    return ERROR_SYSCALL;
+  // Load script args from argv[0] (hex-encoded, passed by delegate lock via ckb_exec)
+  if (argc != 1) {
+    return ERROR_ARGUMENTS_LEN;
   }
-  if (len > SCRIPT_SIZE) {
-    return ERROR_SCRIPT_TOO_LONG;
-  }
-  mol_seg_t script_seg;
-  script_seg.ptr = (uint8_t *)script;
-  script_seg.size = len;
-
-  if (MolReader_Script_verify(&script_seg, false) != MOL_OK) {
-    return ERROR_ENCODING;
-  }
-
-  mol_seg_t args_seg = MolReader_Script_get_args(&script_seg);
-  mol_seg_t args_bytes_seg = MolReader_Bytes_raw_bytes(&args_seg);
-  if (args_bytes_seg.size != BLAKE160_SIZE) {
+  unsigned char pubkey_hash[BLAKE160_SIZE];
+  if (decode_hex(argv[0], pubkey_hash, BLAKE160_SIZE) != 0) {
     return ERROR_ARGUMENTS_LEN;
   }
 
@@ -256,7 +241,7 @@ int main() {
   // As mentioned above, we are only using the first 160 bits(20 bytes), if they match
   // the value provided as the first 20 bytes of script args, the signature verification
   // is considered to be successful.
-  if (memcmp(args_bytes_seg.ptr, temp, BLAKE160_SIZE) != 0) {
+  if (memcmp(pubkey_hash, temp, BLAKE160_SIZE) != 0) {
     return ERROR_PUBKEY_BLAKE160_HASH;
   }
 

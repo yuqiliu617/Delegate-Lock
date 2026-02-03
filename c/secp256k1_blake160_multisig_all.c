@@ -42,6 +42,7 @@
 #include "common.h"
 #include "protocol.h"
 #include "secp256k1_helper.h"
+#include "utils.h"
 
 // Script args validation errors
 #define ERROR_INVALID_RESERVE_FIELD -41
@@ -81,41 +82,24 @@
 // The args part can store an optional 64-bit unsigned little endian value denoting
 // a lock period. The format of the lock period value should confront to the
 // [RFC specification](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md).
-int main() {
+int main(int argc, char* argv[]) {
   int ret;
   uint64_t len;
   unsigned char temp[TEMP_SIZE];
 
-  // First let's load and extract script args part, which is also the blake160 hash of public
-  // key from current running script.
-  unsigned char script[MAX_SCRIPT_SIZE];
-  len = MAX_SCRIPT_SIZE;
-  ret = ckb_load_script(script, &len, 0);
-  if (ret != CKB_SUCCESS) {
-    return ERROR_SYSCALL;
+  // Load script args from argv[0] (hex-encoded, passed by delegate lock via ckb_exec)
+  if (argc != 1) {
+    return ERROR_ARGUMENTS_LEN;
   }
-  if (len > MAX_SCRIPT_SIZE) {
-    return ERROR_SCRIPT_TOO_LONG;
-  }
-  mol_seg_t script_seg;
-  script_seg.ptr = (uint8_t *)script;
-  script_seg.size = len;
-
-  if (MolReader_Script_verify(&script_seg, false) != MOL_OK) {
-    return ERROR_ENCODING;
-  }
-
-  mol_seg_t args_seg = MolReader_Script_get_args(&script_seg);
-  mol_seg_t args_bytes_seg = MolReader_Bytes_raw_bytes(&args_seg);
-  // The script args part should either be 20 bytes(containing only the blake160 hash),
-  // or 28 bytes(containing blake160 hash and since value).
-  if (args_bytes_seg.size != BLAKE160_SIZE &&
-      args_bytes_seg.size != BLAKE160_SIZE + sizeof(uint64_t)) {
+  // Args can be 20 bytes (blake160 hash only) or 28 bytes (blake160 + since value)
+  unsigned char args_bytes[BLAKE160_SIZE + sizeof(uint64_t)];
+  int args_len = decode_hex_var(argv[0], args_bytes, sizeof(args_bytes));
+  if (args_len != BLAKE160_SIZE && args_len != BLAKE160_SIZE + (int)sizeof(uint64_t)) {
     return ERROR_ARGUMENTS_LEN;
   }
   // Extract optional since value.
-  if (args_bytes_seg.size == BLAKE160_SIZE + sizeof(uint64_t)) {
-    uint64_t since = *(uint64_t *)&args_bytes_seg.ptr[BLAKE160_SIZE];
+  if (args_len == BLAKE160_SIZE + (int)sizeof(uint64_t)) {
+    uint64_t since = *(uint64_t *)&args_bytes[BLAKE160_SIZE];
     // Check lock period logic, we have prepared a handy utility function for this.
     ret = check_since(since);
     if (ret != CKB_SUCCESS) {
@@ -195,7 +179,7 @@ int main() {
   blake2b_update(&blake2b_ctx, lock_bytes, multisig_script_len);
   blake2b_final(&blake2b_ctx, temp, BLAKE2B_BLOCK_SIZE);
 
-  if (memcmp(args_bytes_seg.ptr, temp, BLAKE160_SIZE) != 0) {
+  if (memcmp(args_bytes, temp, BLAKE160_SIZE) != 0) {
     return ERROR_MULTSIG_SCRIPT_HASH;
   }
 
