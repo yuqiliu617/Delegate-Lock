@@ -12,6 +12,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 #[cfg(test)]
+mod secp256k1_blake160;
+#[cfg(test)]
 mod tests;
 
 // The exact same Loader code from capsule's template, except that

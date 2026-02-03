@@ -128,7 +128,7 @@ build-c:
 	fi
 
 # Build all C scripts natively (requires RISC-V toolchain with newlib)
-build-c-native: $(BUILD_DIR)/secp256k1_blake160_sighash_all $(BUILD_DIR)/secp256k1_blake160_multisig_all
+build-c-native: $(BUILD_DIR)/secp256k1_blake160_sighash_all $(BUILD_DIR)/secp256k1_blake160_multisig_all $(BUILD_DIR)/secp256k1_data
 
 # Build C scripts via Docker
 build-c-docker:
@@ -145,6 +145,11 @@ $(BUILD_DIR)/secp256k1_blake160_multisig_all: c/secp256k1_blake160_multisig_all.
 	$(CC) $(C_CFLAGS) $(C_LDFLAGS) -o $@ $<
 	$(OBJCOPY) --only-keep-debug $@ $@.debug
 	$(OBJCOPY) --strip-debug --strip-all $@
+
+# Copy secp256k1_data to build directory (required by C scripts at runtime)
+$(BUILD_DIR)/secp256k1_data: specs/cells/secp256k1_data
+	mkdir -p $(BUILD_DIR)
+	cp $< $@
 
 # secp256k1 data info header generation
 build/secp256k1_data_info.h: build/dump_secp256k1_data
