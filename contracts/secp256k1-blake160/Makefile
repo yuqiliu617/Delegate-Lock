@@ -26,7 +26,7 @@ BUILD_DIR :=
 # likely match the crate name, which is also the name of the final binary.
 # However if this is not the case, you can tweak this variable. As the name hints,
 # more than one binary is supported here.
-BINARIES := $(notdir $(shell pwd))
+BINARIES := secp256k1-blake160-delegate
 
 ifeq (release,$(MODE))
 	MODE_ARGS := --release

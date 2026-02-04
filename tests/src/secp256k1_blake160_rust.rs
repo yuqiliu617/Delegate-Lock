@@ -117,7 +117,7 @@ impl DelegateLockTestContext {
         let mut context = Context::default();
         let delegate_lock_bin: Bytes = Loader::default().load_binary("delegate-lock");
         let delegate_lock_out_point = context.deploy_cell(delegate_lock_bin);
-        let blake160_bin: Bytes = Loader::default().load_binary("blake160-delegate");
+        let blake160_bin: Bytes = Loader::default().load_binary("secp256k1-blake160-delegate");
         let blake160_delegate_out_point = context.deploy_cell(blake160_bin.clone());
         let blake160_code_hash: [u8; 32] = blake2b_256(&blake160_bin)[0..32]
             .try_into()

@@ -6,7 +6,7 @@ members = [
 	# detect insertion point for newly generated crates.
 	# @@INSERTION_POINT@@
 	"contracts/delegate-lock",
-	"contracts/blake160-delegate",
+	"contracts/secp256k1-blake160",
 	"tests",
 ]
 

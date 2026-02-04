@@ -1,5 +1,5 @@
 [package]
-name = "blake160-delegate"
+name = "secp256k1-blake160-delegate"
 version = "0.1.0"
 edition = "2021"
 
