@@ -3,116 +3,21 @@
 //! These tests verify the C implementation of secp256k1_blake160_sighash_all works correctly
 //! when invoked via delegate lock (which passes args via argc/argv).
 
-use crate::{verify_and_dump_failed_tx, Loader};
+use crate::{
+    build_actual_lock_script_data, generate_type_id, pack_capacity, sign_tx,
+    verify_and_dump_failed_tx, CompressedKeyPair, Loader, Signer, HASH_SIZE, PUBKEY_HASH_SIZE,
+    SIGNATURE_SIZE, TYPE_ID_CODE_HASH,
+};
 use ckb_hash::blake2b_256;
 use ckb_testtool::{
     ckb_types::{
         bytes::Bytes,
         core::{ScriptHashType, TransactionBuilder, TransactionView},
-        packed::{self, *},
+        packed::*,
         prelude::*,
     },
     context::Context,
 };
-use k256::{
-    ecdsa::{signature::Error as SigError, SigningKey},
-    elliptic_curve::rand_core::OsRng,
-    SecretKey,
-};
-
-const PUBKEY_HASH_SIZE: usize = 20;
-const HASH_SIZE: usize = 32;
-const SIGNATURE_SIZE: usize = 65;
-const TYPE_ID_CODE_HASH: [u8; HASH_SIZE] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 89, 80, 69, 95,
-    73, 68,
-];
-
-/// Key pair for testing, using secp256k1 with compressed public key blake160 hash.
-struct Secp256k1KeyPair {
-    signing_key: SigningKey,
-    /// blake160 of compressed public key (matches C script's behavior)
-    pubkey_hash: [u8; PUBKEY_HASH_SIZE],
-}
-
-impl Secp256k1KeyPair {
-    fn new() -> Self {
-        let secret_key = SecretKey::random(&mut OsRng);
-        let signing_key = SigningKey::from(&secret_key);
-        let pubkey = signing_key.verifying_key();
-        // C script uses compressed pubkey for blake160 hash
-        let compressed_pubkey = pubkey.to_encoded_point(true);
-        let pubkey_hash = blake2b_256(compressed_pubkey.as_bytes());
-        Self {
-            signing_key,
-            pubkey_hash: pubkey_hash[0..PUBKEY_HASH_SIZE]
-                .try_into()
-                .expect("hash size correct"),
-        }
-    }
-
-    fn sign(&self, prehash: &[u8; 32]) -> Result<[u8; SIGNATURE_SIZE], SigError> {
-        let (signature, recovery_id) = self.signing_key.sign_prehash_recoverable(prehash)?;
-        let mut sig_bytes = [0u8; SIGNATURE_SIZE];
-        sig_bytes[0..64].copy_from_slice(&signature.to_bytes());
-        sig_bytes[64] = recovery_id.to_byte();
-        Ok(sig_bytes)
-    }
-}
-
-fn pack_capacity(capacity: u64) -> packed::Uint64 {
-    capacity.pack()
-}
-
-fn build_actual_lock_script_data(
-    blake160_code_hash: &[u8; 32],
-    pubkey_hash: &[u8; PUBKEY_HASH_SIZE],
-) -> Bytes {
-    Script::new_builder()
-        .code_hash(blake160_code_hash.pack())
-        .hash_type(Byte::new(ScriptHashType::Data1 as u8))
-        .args(Bytes::from(pubkey_hash.to_vec()).pack())
-        .build()
-        .as_bytes()
-}
-
-fn generate_type_id(first_input: &CellInput, output_index: u64) -> [u8; HASH_SIZE] {
-    let mut hasher = ckb_hash::new_blake2b();
-    hasher.update(first_input.as_slice());
-    hasher.update(&output_index.to_le_bytes());
-    let mut hash = [0u8; HASH_SIZE];
-    hasher.finalize(&mut hash);
-    hash
-}
-
-fn compute_sighash_all(tx: &TransactionView) -> [u8; 32] {
-    let tx_hash = tx.hash();
-    let zero_lock = Bytes::from(vec![0u8; SIGNATURE_SIZE]);
-    let zeroed_witness = WitnessArgs::new_builder()
-        .lock(Some(zero_lock).pack())
-        .build();
-    let zeroed_witness_bytes = zeroed_witness.as_bytes();
-    let mut hasher = ckb_hash::new_blake2b();
-    hasher.update(tx_hash.as_slice());
-    hasher.update(&(zeroed_witness_bytes.len() as u64).to_le_bytes());
-    hasher.update(&zeroed_witness_bytes);
-    let mut hash = [0u8; 32];
-    hasher.finalize(&mut hash);
-    hash
-}
-
-fn sign_tx(tx: TransactionView, signer: &Secp256k1KeyPair) -> Result<TransactionView, SigError> {
-    let sighash = compute_sighash_all(&tx);
-    let signature = signer.sign(&sighash)?;
-    let witness = Bytes::from(signature.to_vec());
-    let witness_args = WitnessArgs::new_builder()
-        .lock(Some(witness).pack())
-        .build();
-    Ok(tx
-        .as_advanced_builder()
-        .witness(witness_args.as_bytes().pack())
-        .build())
-}
 
 /// Test context for secp256k1_blake160_sighash_all with delegate lock.
 struct Secp256k1DelegateTestContext {
@@ -283,9 +188,9 @@ impl Secp256k1DelegateTestContext {
 #[test]
 fn test_sighash_all_delegate_unlock_success() {
     let mut ctx = Secp256k1DelegateTestContext::new();
-    let owner = Secp256k1KeyPair::new();
+    let owner = CompressedKeyPair::new();
     let type_id = ctx.setup_type_id();
-    let type_id_cell = ctx.create_type_id_cell(&type_id, &owner.pubkey_hash);
+    let type_id_cell = ctx.create_type_id_cell(&type_id, owner.pubkey_hash());
     let locked_cell = ctx.create_delegate_locked_cell(&type_id, 1000);
     let tx = ctx.build_unlock_tx(vec![locked_cell], 990, &type_id, type_id_cell);
     let tx = sign_tx(tx, &owner).expect("sign tx");
@@ -300,9 +205,9 @@ fn test_sighash_all_delegate_unlock_success() {
 #[test]
 fn test_sighash_all_delegate_multiple_cells() {
     let mut ctx = Secp256k1DelegateTestContext::new();
-    let owner = Secp256k1KeyPair::new();
+    let owner = CompressedKeyPair::new();
     let type_id = ctx.setup_type_id();
-    let type_id_cell = ctx.create_type_id_cell(&type_id, &owner.pubkey_hash);
+    let type_id_cell = ctx.create_type_id_cell(&type_id, owner.pubkey_hash());
     let locked_cell_1 = ctx.create_delegate_locked_cell(&type_id, 1000);
     let locked_cell_2 = ctx.create_delegate_locked_cell(&type_id, 2000);
     let tx = ctx.build_unlock_tx(
@@ -323,10 +228,10 @@ fn test_sighash_all_delegate_multiple_cells() {
 #[test]
 fn test_sighash_all_delegate_wrong_signature() {
     let mut ctx = Secp256k1DelegateTestContext::new();
-    let owner = Secp256k1KeyPair::new();
-    let attacker = Secp256k1KeyPair::new();
+    let owner = CompressedKeyPair::new();
+    let attacker = CompressedKeyPair::new();
     let type_id = ctx.setup_type_id();
-    let type_id_cell = ctx.create_type_id_cell(&type_id, &owner.pubkey_hash);
+    let type_id_cell = ctx.create_type_id_cell(&type_id, owner.pubkey_hash());
     let locked_cell = ctx.create_delegate_locked_cell(&type_id, 1000);
     let tx = ctx.build_unlock_tx(vec![locked_cell], 990, &type_id, type_id_cell);
     // Sign with attacker's key instead of owner's
@@ -338,7 +243,7 @@ fn test_sighash_all_delegate_wrong_signature() {
 #[test]
 fn test_sighash_all_delegate_missing_type_id_cell() {
     let mut ctx = Secp256k1DelegateTestContext::new();
-    let owner = Secp256k1KeyPair::new();
+    let owner = CompressedKeyPair::new();
     let type_id = ctx.setup_type_id();
     // Don't create the type_id_cell, so delegate lock can't find it
     let locked_cell = ctx.create_delegate_locked_cell(&type_id, 1000);
@@ -368,13 +273,13 @@ fn test_sighash_all_delegate_missing_type_id_cell() {
 #[test]
 fn test_sighash_all_delegate_corrupted_witness() {
     let mut ctx = Secp256k1DelegateTestContext::new();
-    let owner = Secp256k1KeyPair::new();
+    let owner = CompressedKeyPair::new();
     let type_id = ctx.setup_type_id();
-    let type_id_cell = ctx.create_type_id_cell(&type_id, &owner.pubkey_hash);
+    let type_id_cell = ctx.create_type_id_cell(&type_id, owner.pubkey_hash());
     let locked_cell = ctx.create_delegate_locked_cell(&type_id, 1000);
     let tx = ctx.build_unlock_tx(vec![locked_cell], 990, &type_id, type_id_cell);
     // Use corrupted signature (wrong size)
-    let corrupted_signature = Bytes::from(vec![0u8; 64]); // Wrong size, should be 65
+    let corrupted_signature = Bytes::from(vec![0u8; SIGNATURE_SIZE - 1]);
     let witness_args = WitnessArgs::new_builder()
         .lock(Some(corrupted_signature).pack())
         .build();
