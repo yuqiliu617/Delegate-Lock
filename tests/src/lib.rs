@@ -12,9 +12,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 #[cfg(test)]
-mod secp256k1_blake160;
+mod secp256k1_blake160_c;
 #[cfg(test)]
-mod tests;
+mod secp256k1_blake160_rust;
 
 // The exact same Loader code from capsule's template, except that
 // now we use MODE as the environment variable
