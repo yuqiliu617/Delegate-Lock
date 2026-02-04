@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ckb-std = "1.0.1"
+ckb-std = "1.0.2"
 ckb-hash = { version = "1.0.1", default-features = false, features = [
 	"ckb-contract",
 ] }
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "alloc"] }
+k256 = { version = "0.13", default-features = false, features = [
+	"ecdsa",
+	"alloc",
+] }
 
 [features]
 library = []
