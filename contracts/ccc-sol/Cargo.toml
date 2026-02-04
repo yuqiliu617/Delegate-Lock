@@ -1,0 +1,10 @@
+[package]
+name = "ccc-sol-delegate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ckb-std = "1.0.2"
+ckb-lock-helper = { path = "../../helper", package = "delegate-lock-helper" }
+ed25519-dalek = { version = "2.1.1", default-features = false }
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
