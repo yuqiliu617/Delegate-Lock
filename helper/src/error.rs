@@ -6,6 +6,7 @@ pub enum Error {
     ItemMissing,
     LengthNotEnough,
     Encoding,
+    HexDecoding,
     Unknown = 10,
     WrongWitnessArgs,
 }

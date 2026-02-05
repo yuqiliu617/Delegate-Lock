@@ -4,8 +4,8 @@
 #[cfg(any(feature = "library", test))]
 extern crate alloc;
 
-use alloc::vec::Vec;
 use ckb_hash::blake2b_256;
+use ckb_lock_helper::{decode_hex, error::Error as HelperError};
 use ckb_std::{
     ckb_constants::Source,
     ckb_types::{bytes::Bytes, packed::WitnessArgs, prelude::*},
@@ -50,25 +50,12 @@ impl From<SysError> for Error {
     }
 }
 
-fn decode_hex(hex: &[u8]) -> Result<Vec<u8>, Error> {
-    if hex.len() % 2 != 0 {
-        return Err(Error::ArgsInvalid);
-    }
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for chunk in hex.chunks(2) {
-        let high = hex_digit_to_value(chunk[0])?;
-        let low = hex_digit_to_value(chunk[1])?;
-        bytes.push((high << 4) | low);
-    }
-    Ok(bytes)
-}
-
-fn hex_digit_to_value(c: u8) -> Result<u8, Error> {
-    match c {
-        b'0'..=b'9' => Ok(c - b'0'),
-        b'a'..=b'f' => Ok(c - b'a' + 10),
-        b'A'..=b'F' => Ok(c - b'A' + 10),
-        _ => Err(Error::ArgsInvalid),
+impl From<HelperError> for Error {
+    fn from(err: HelperError) -> Self {
+        match err {
+            HelperError::HexDecoding => Self::ArgsInvalid,
+            _ => Self::Unknown,
+        }
     }
 }
 
