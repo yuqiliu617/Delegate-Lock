@@ -1,10 +1,7 @@
 use crate::error::Error;
 use alloc::vec::Vec;
 use ckb_lock_helper::{generate_sighash_all, println_hex, secp256k1_patch::recover_from_prehash};
-use ckb_std::{
-    ckb_constants::Source,
-    high_level::{load_script, load_witness_args},
-};
+use ckb_std::{ckb_constants::Source, high_level::load_witness_args};
 use k256::ecdsa::{RecoveryId, Signature};
 use ripemd::{Digest, Ripemd160};
 use sha2::Sha256;
@@ -48,11 +45,18 @@ fn message_hash(msg: &str) -> [u8; 32] {
 }
 
 pub fn entry() -> Result<(), Error> {
-    let script = load_script()?;
-    let pubkey_hash_expect = script.args().raw_data();
-    if pubkey_hash_expect.len() != 20 {
+    // Parse pubkey hash from argv[0] (hex-encoded, passed by delegate lock)
+    let argv = ckb_std::env::argv();
+    if argv.len() != 1 {
+        return Err(Error::ArgsInvalid);
+    }
+    let args_hex = argv[0].to_bytes();
+    let args = ckb_lock_helper::decode_hex(args_hex)?;
+    if args.len() != 20 {
         return Err(Error::WrongPubkeyHash);
     }
+    let pubkey_hash_expect: [u8; 20] = args.try_into().map_err(|_| Error::WrongPubkeyHash)?;
+
     let sighash_all = generate_sighash_all()?;
     let sighash_all_hex = hex::encode(&sighash_all);
     let digest_hash = message_hash(&sighash_all_hex);

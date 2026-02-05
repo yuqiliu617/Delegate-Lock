@@ -14,6 +14,7 @@ pub enum Error {
     WrongSignatureFormat,
     InvalidRecoverId,
     CanNotRecover,
+    ArgsInvalid,
 }
 
 impl From<HelperError> for Error {
@@ -23,6 +24,7 @@ impl From<HelperError> for Error {
             HelperError::ItemMissing => Error::ItemMissing,
             HelperError::LengthNotEnough => Error::LengthNotEnough,
             HelperError::Encoding => Error::Encoding,
+            HelperError::HexDecoding => Error::ArgsInvalid,
             HelperError::Unknown => Error::Unknown,
             HelperError::WrongWitnessArgs => Error::WrongWitnessArgs,
         }

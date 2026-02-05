@@ -1,10 +1,7 @@
 use crate::error::Error;
 use alloc::string::String;
 use ckb_lock_helper::{blake2b::blake160, generate_sighash_all};
-use ckb_std::{
-    ckb_constants::Source,
-    high_level::{load_script, load_witness_args},
-};
+use ckb_std::{ckb_constants::Source, high_level::load_witness_args};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey, PUBLIC_KEY_LENGTH};
 
 fn message_wrap(msg: &str) -> String {
@@ -17,11 +14,18 @@ fn message_wrap(msg: &str) -> String {
 }
 
 pub fn entry() -> Result<(), Error> {
-    let script = load_script()?;
-    let pubkey_hash_expect = script.args().raw_data();
-    if pubkey_hash_expect.len() != 20 {
+    // Parse pubkey hash from argv[0] (hex-encoded, passed by delegate lock)
+    let argv = ckb_std::env::argv();
+    if argv.len() != 1 {
+        return Err(Error::ArgsInvalid);
+    }
+    let args_hex = argv[0].to_bytes();
+    let args = ckb_lock_helper::decode_hex(args_hex)?;
+    if args.len() != 20 {
         return Err(Error::WrongPubkey);
     }
+    let pubkey_hash_expect: [u8; 20] = args.try_into().map_err(|_| Error::WrongPubkey)?;
+
     let sighash_all = generate_sighash_all()?;
     let sighash_all_hex = hex::encode(&sighash_all);
     let msg = message_wrap(&sighash_all_hex);

@@ -12,6 +12,7 @@ pub enum Error {
     WrongPubkey,
     WrongSignatureFormat,
     WrongSignature,
+    ArgsInvalid,
 }
 
 impl From<HelperError> for Error {
@@ -21,6 +22,7 @@ impl From<HelperError> for Error {
             HelperError::ItemMissing => Error::ItemMissing,
             HelperError::LengthNotEnough => Error::LengthNotEnough,
             HelperError::Encoding => Error::Encoding,
+            HelperError::HexDecoding => Error::ArgsInvalid,
             HelperError::Unknown => Error::Unknown,
             HelperError::WrongWitnessArgs => Error::WrongWitnessArgs,
         }
@@ -35,6 +37,7 @@ impl From<SysError> for Error {
             SysError::LengthNotEnough(_) => Self::LengthNotEnough,
             SysError::Encoding => Self::Encoding,
             SysError::Unknown(_) => Self::Unknown,
+            _ => Self::Unknown,
         }
     }
 }
