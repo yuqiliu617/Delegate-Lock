@@ -19,6 +19,30 @@ pub fn println_hex(name: &str, data: &[u8]) {
     debug!("{}(len={}): {}", name, data.len(), hex::encode(data));
 }
 
+/// Decode a hex string into bytes.
+/// This is used to parse hex-encoded arguments passed via argv from delegate lock.
+pub fn decode_hex(hex: &[u8]) -> Result<alloc::vec::Vec<u8>, Error> {
+    if hex.len() % 2 != 0 {
+        return Err(Error::HexDecoding);
+    }
+    let mut bytes = alloc::vec::Vec::with_capacity(hex.len() / 2);
+    for chunk in hex.chunks(2) {
+        let high = hex_digit_to_value(chunk[0])?;
+        let low = hex_digit_to_value(chunk[1])?;
+        bytes.push((high << 4) | low);
+    }
+    Ok(bytes)
+}
+
+fn hex_digit_to_value(c: u8) -> Result<u8, Error> {
+    match c {
+        b'0'..=b'9' => Ok(c - b'0'),
+        b'a'..=b'f' => Ok(c - b'a' + 10),
+        b'A'..=b'F' => Ok(c - b'A' + 10),
+        _ => Err(Error::HexDecoding),
+    }
+}
+
 pub fn generate_sighash_all() -> Result<[u8; 32], Error> {
     let mut blake2b_ctx = new_blake2b_stat();
     let tx_hash = load_tx_hash()?;

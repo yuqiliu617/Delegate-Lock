@@ -12,6 +12,7 @@ k256 = { version = "0.13", default-features = false, features = [
 	"ecdsa",
 	"alloc",
 ] }
+ckb-lock-helper = { path = "../../helper", package = "delegate-lock-helper" }
 
 [features]
 library = []

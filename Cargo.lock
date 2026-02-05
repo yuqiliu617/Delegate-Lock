@@ -1792,6 +1792,7 @@ version = "0.1.0"
 dependencies = [
  "ckb-hash",
  "ckb-std",
+ "delegate-lock-helper",
  "k256",
 ]
 
