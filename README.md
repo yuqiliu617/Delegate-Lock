@@ -108,7 +108,7 @@ To address this, Delegate Lock uses the following convention when invoking the a
     - `argv[0]` contains the hex-encoded script args from the Type ID cell data.
 - Delegate lock itself does not impose any additional witness requirements. The actual lock script can load its witness as usual.
 
-Therefore, the actual lock script must read its arguments from `argc` and `argv` instead of `ckb_load_script`. Since most existing lock scripts use `ckb_load_script`, modified versions of common lock scripts (e.g., secp256k1, multisig) are provided in this repository.
+Therefore, the actual lock script must read its arguments from `argc` and `argv` instead of `ckb_load_script`. Since most existing lock scripts use `ckb_load_script`, modified versions are provided in this repository (see [Migrated Lock Scripts](#migrated-lock-scripts) below).
 
 To adapt an existing lock script to work with Delegate Lock, follow the following migration guide:
 ```rust
@@ -151,6 +151,18 @@ fn hex_digit_to_value(c: u8) -> Result<u8, Error> {
     }
 }
 ```
+
+## Migrated Lock Scripts
+
+The following lock scripts have been adapted to work with Delegate Lock by reading arguments from `argv` instead of `ckb_load_script`:
+
+| Script                                                                   | Original                                                                                |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| [secp256k1-blake160-sighash-all](./c/secp256k1_blake160_sighash_all.c)   | [CKB System Scripts](https://github.com/nervosnetwork/ckb-system-scripts)               |
+| [secp256k1-blake160-multisig-all](./c/secp256k1_blake160_multisig_all.c) | [CKB System Scripts](https://github.com/nervosnetwork/ckb-system-scripts)               |
+| [ccc-btc](./contracts/ccc-btc)                                           | [CCC Locks](https://github.com/ckb-devrel/ccc-locks/tree/master/contracts/ccc-btc-lock) |
+| [ccc-eth](./contracts/ccc-eth)                                           | [CCC Locks](https://github.com/ckb-devrel/ccc-locks/tree/master/contracts/ccc-eth-lock) |
+| [ccc-sol](./contracts/ccc-sol)                                           | [CCC Locks](https://github.com/ckb-devrel/ccc-locks/tree/master/contracts/ccc-sol-lock) |
 
 ## Security Considerations
 
