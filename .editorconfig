@@ -8,3 +8,7 @@ end_of_line = lf
 
 [*.sh]
 end_of_line = lf
+
+[*.{c,h,yml,yaml}]
+indent_style = space
+indent_size = 2

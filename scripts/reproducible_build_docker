@@ -55,7 +55,7 @@ else
   TASKS+=" build "
 fi
 
-$DOCKER run --rm $DOCKER_RUN_ARGS -v `pwd`:/code $DOCKER_IMAGE make $TASKS
+$DOCKER run --rm $DOCKER_RUN_ARGS -v `pwd`:/code $DOCKER_IMAGE make C_BUILD_METHOD=native $TASKS
 # Reset file ownerships for all files docker might touch
 $DOCKER run --rm $DOCKER_RUN_ARGS -e UID=`id -u` -e GID=`id -g` -v `pwd`:/code $DOCKER_IMAGE bash -c 'chown -R -f $UID:$GID checksums.txt build target'
 
