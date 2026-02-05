@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+
+jobs:
+  rustfmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo fmt --all -- --check
+
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Ensure scripts are executable
+        run: chmod +x scripts/*
+      - name: Build C scripts via Docker
+        run: |
+          docker run --rm -v $(pwd):/code \
+            nervos/ckb-riscv-gnu-toolchain@sha256:7b168b4b109a0f741078a71b7c4dddaf1d283a5244608f7851f5714fbad273ba \
+            bash -c "cd /code && make build-c-native"
+      - name: Build Rust scripts via Docker
+        run: |
+          docker run --rm -v $(pwd):/code \
+            docker.io/cryptape/llvm-n-rust@sha256:d6d1f9a6656039273210de91913c828f5b4aa4a3282d2c93ed19bcb7bbf728fe \
+            make build-rust-no-clean
+      - name: Fix file ownership
+        run: sudo chown -R $(id -u):$(id -g) build target
+      - name: Run tests
+        run: cargo test -p tests -- --nocapture
