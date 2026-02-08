@@ -87,13 +87,13 @@ int main(int argc, char* argv[]) {
   uint64_t len;
   unsigned char temp[TEMP_SIZE];
 
-  // Load script args from argv[0] (hex-encoded, passed by delegate lock via ckb_exec)
-  if (argc != 1) {
+  // Verify delegate lock magic and load script args from argv[1]
+  if (argc != 2 || strcmp(argv[0], DELEGATE_LOCK_MAGIC) != 0) {
     return ERROR_ARGUMENTS_LEN;
   }
   // Args can be 20 bytes (blake160 hash only) or 28 bytes (blake160 + since value)
   unsigned char args_bytes[BLAKE160_SIZE + sizeof(uint64_t)];
-  int args_len = decode_hex_var(argv[0], args_bytes, sizeof(args_bytes));
+  int args_len = decode_hex_var(argv[1], args_bytes, sizeof(args_bytes));
   if (args_len != BLAKE160_SIZE && args_len != BLAKE160_SIZE + (int)sizeof(uint64_t)) {
     return ERROR_ARGUMENTS_LEN;
   }

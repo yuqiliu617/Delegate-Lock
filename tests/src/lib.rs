@@ -137,7 +137,7 @@ pub fn build_actual_lock_script_data(
 ) -> Bytes {
     Script::new_builder()
         .code_hash(blake160_code_hash.pack())
-        .hash_type(Byte::new(ScriptHashType::Data1 as u8))
+        .hash_type(Byte::new(ScriptHashType::Data2 as u8))
         .args(Bytes::from(pubkey_hash.to_vec()).pack())
         .build()
         .as_bytes()
@@ -155,6 +155,7 @@ pub fn generate_type_id(first_input: &CellInput, output_index: u64) -> [u8; HASH
 pub fn compute_sighash_all(tx: &TransactionView) -> [u8; 32] {
     let tx_hash = tx.hash();
     let zero_lock = Bytes::from(vec![0u8; SIGNATURE_SIZE]);
+    // FIXME
     let zeroed_witness = WitnessArgs::new_builder()
         .lock(Some(zero_lock).pack())
         .build();

@@ -56,9 +56,6 @@ int epoch_number_with_fraction_cmp(uint64_t a, uint64_t b) {
   }
 }
 
-/* Hex decoding utilities for delegate lock argv parsing.
-   When a lock script runs under delegate lock, args are passed via ckb_exec
-   as a hex-encoded string in argv[0]. */
 int hex_to_nibble(char c) {
   if ((unsigned)(c - '0') < 10) {
     return c - '0';
@@ -73,19 +70,17 @@ int hex_to_nibble(char c) {
 
 /* Decode hex string to bytes with fixed output length.
    Returns 0 on success, -1 on error (wrong length or invalid hex). */
-int decode_hex(const char *hex, unsigned char *out, size_t out_len) {
-  size_t i = 0;
-  for (; i < out_len; i++) {
+int decode_hex(const char *hex, size_t hex_len, unsigned char *out, size_t out_len) {
+  if (hex_len != (out_len << 1)) {
+    return -1;
+  }
+  for (size_t i = 0; i < out_len; i++) {
     int hi = hex_to_nibble(hex[i << 1]);
     int lo = hex_to_nibble(hex[i << 1 | 1]);
     if ((hi | lo) < 0) {
       return -1;
     }
     out[i] = (unsigned char)((hi << 4) | lo);
-  }
-  /* Ensure hex string is exactly 2*out_len characters (null-terminated) */
-  if (hex[i << 1] != '\0') {
-    return -1;
   }
   return 0;
 }

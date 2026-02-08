@@ -33,10 +33,7 @@ const TYPE_ID_PREFIX_SIZE: usize = 20;
 type Hash = [u8; HASH_SIZE];
 type TypeIdPrefix = [u8; TYPE_ID_PREFIX_SIZE];
 
-pub const TYPE_ID_CODE_HASH: Hash = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 89, 80, 69, 95, 73, 68
-];
+pub const TYPE_ID_CODE_HASH: Hash = *b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0TYPE_ID";
 
 /// Find a cell in cell_deps whose type script args starts with the given type_id prefix.
 fn find_type_id_cell(type_id_prefix: &TypeIdPrefix) -> Result<usize, Error> {
@@ -82,6 +79,9 @@ fn encode_hex(data: &[u8]) -> CString {
     unsafe { CString::from_vec_unchecked(hex) }
 }
 
+const DELEGATE_LOCK_MAGIC: &CStr =
+    unsafe { CStr::from_bytes_with_nul_unchecked(b"DELEGATE_LOCK\0") };
+
 /// Execute the actual lock script using ckb_exec.
 fn exec_actual_lock_script(script: &Script) -> Result<(), Error> {
     let code_hash: Hash = script.code_hash().unpack();
@@ -95,7 +95,7 @@ fn exec_actual_lock_script(script: &Script) -> Result<(), Error> {
     };
     let script_args: Bytes = script.args().unpack();
     let args_cstr = encode_hex(&script_args);
-    let argv: [&CStr; 1] = [&args_cstr];
+    let argv: [&CStr; 2] = [DELEGATE_LOCK_MAGIC, &args_cstr];
     exec_cell(&code_hash, hash_type, &argv)?;
     panic!("unreachable");
 }

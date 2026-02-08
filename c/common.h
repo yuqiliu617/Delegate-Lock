@@ -8,6 +8,9 @@ Defines commonly used high level functions and constants.
 #include "protocol.h"
 #include "utils.h"
 
+/* Delegate lock magic identifier (must match argv[0] from delegate lock) */
+#define DELEGATE_LOCK_MAGIC "DELEGATE_LOCK"
+
 /* Common errors */
 #define ERROR_ARGUMENTS_LEN -1
 #define ERROR_ENCODING -2

@@ -5,7 +5,7 @@
 extern crate alloc;
 
 use ckb_hash::blake2b_256;
-use ckb_lock_helper::{decode_hex, error::Error as HelperError};
+use ckb_lock_helper::{decode_hex, error::Error as HelperError, DELEGATE_LOCK_MAGIC};
 use ckb_std::{
     ckb_constants::Source,
     ckb_types::{bytes::Bytes, packed::WitnessArgs, prelude::*},
@@ -122,12 +122,12 @@ fn verify_signature(
 }
 
 fn run() -> Result<(), Error> {
-    // Parse pubkey hash from argv[0] (hex-encoded)
+    // Verify delegate lock magic and parse pubkey hash from argv[1] (hex-encoded)
     let argv = ckb_std::env::argv();
-    if argv.len() != 1 {
+    if argv.len() != 2 || argv[0].to_bytes() != DELEGATE_LOCK_MAGIC {
         return Err(Error::ArgsInvalid);
     }
-    let args_hex = argv[0].to_bytes();
+    let args_hex = argv[1].to_bytes();
     let args = decode_hex(args_hex)?;
     if args.len() != PUBKEY_HASH_SIZE {
         return Err(Error::ArgsInvalid);

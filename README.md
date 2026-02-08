@@ -104,8 +104,9 @@ To address this, Delegate Lock uses the following convention when invoking the a
 - It uses [`ckb_exec`](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0034-vm-syscalls-2/0034-vm-syscalls-2.md#exec) to execute the actual lock script.
 - `source` is set to `CKB_SOURCE_CELL_DEP` (3), `place` is set to 0 (cell data), and `bounds` is set to 0 (entire data).
 - The lock script arguments from the Type ID cell data are passed via `argc` and `argv` parameters of `ckb_exec`.
-    - `argc` is always 1
-    - `argv[0]` contains the hex-encoded script args from the Type ID cell data.
+    - `argc` is always 2
+    - `argv[0]` contains the magic string `"DELEGATE_LOCK"`, which the actual lock script must verify to confirm it was invoked by Delegate Lock.
+    - `argv[1]` contains the hex-encoded script args from the Type ID cell data.
 - Delegate lock itself does not impose any additional witness requirements. The actual lock script can load its witness as usual.
 
 Therefore, the actual lock script must read its arguments from `argc` and `argv` instead of `ckb_load_script`. Since most existing lock scripts use `ckb_load_script`, modified versions are provided in this repository (see [Migrated Lock Scripts](#migrated-lock-scripts) below).
@@ -121,12 +122,14 @@ fn run() -> Result<(), Error> {
 ```
 ```rust
 // New way: load from argv
+const DELEGATE_LOCK_MAGIC: &[u8] = b"DELEGATE_LOCK";
+
 fn run() -> Result<(), Error> {
     let argv = ckb_std::env::argv();
-    if argv.len() != 1 {
+    if argv.len() != 2 || argv[0].to_bytes() != DELEGATE_LOCK_MAGIC {
         return Err(Error::ArgsInvalid);
     }
-    let args_hex = argv[0].to_bytes();
+    let args_hex = argv[1].to_bytes();
     let args = decode_hex(args_hex)?;
     // ...
 }

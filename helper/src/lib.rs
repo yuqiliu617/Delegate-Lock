@@ -15,6 +15,9 @@ use ckb_std::debug;
 use ckb_std::high_level::{load_tx_hash, load_witness, load_witness_args};
 use ckb_std::syscalls::{load_input_by_field, SysError};
 
+/// Magic identifier passed as argv[0] by delegate lock.
+pub const DELEGATE_LOCK_MAGIC: &[u8] = b"DELEGATE_LOCK";
+
 pub fn println_hex(name: &str, data: &[u8]) {
     debug!("{}(len={}): {}", name, data.len(), hex::encode(data));
 }

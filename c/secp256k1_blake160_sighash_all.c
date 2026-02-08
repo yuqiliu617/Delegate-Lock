@@ -83,12 +83,12 @@ int main(int argc, char* argv[]) {
   unsigned char temp[TEMP_SIZE];
   unsigned char lock_bytes[SIGNATURE_SIZE];
 
-  // Load script args from argv[0] (hex-encoded, passed by delegate lock via ckb_exec)
-  if (argc != 1) {
+  // Verify delegate lock magic and load script args from argv[1]
+  if (argc != 2 || strcmp(argv[0], DELEGATE_LOCK_MAGIC) != 0) {
     return ERROR_ARGUMENTS_LEN;
   }
   unsigned char pubkey_hash[BLAKE160_SIZE];
-  if (decode_hex(argv[0], pubkey_hash, BLAKE160_SIZE) != 0) {
+  if (decode_hex(argv[1], strlen(argv[1]), pubkey_hash, BLAKE160_SIZE) != 0) {
     return ERROR_ARGUMENTS_LEN;
   }
 
