@@ -1,11 +1,16 @@
+use ckb_hash::blake2b_256;
 use ckb_testtool::{
+    ckb_chain_spec::consensus::TYPE_ID_CODE_HASH,
     ckb_error::Error,
     ckb_types::{
         bytes::Bytes,
-        core::{Cycle, TransactionView},
+        core::{Cycle, ScriptHashType, TransactionBuilder, TransactionView},
+        packed::{self, Byte, CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
+        prelude::*,
     },
     context::Context,
 };
+use k256::ecdsa::{signature::Error as SigError, SigningKey};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -112,33 +117,19 @@ pub fn verify_and_dump_failed_tx(
     result
 }
 
-use ckb_testtool::ckb_types::{
-    core::ScriptHashType,
-    packed::{self, Byte, CellInput, Script, WitnessArgs},
-    prelude::*,
-};
-use k256::ecdsa::{signature::Error as SigError, SigningKey};
-
 pub const PUBKEY_HASH_SIZE: usize = 20;
 pub const HASH_SIZE: usize = 32;
 pub const SIGNATURE_SIZE: usize = 65;
-pub const TYPE_ID_CODE_HASH: [u8; HASH_SIZE] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 89, 80, 69, 95,
-    73, 68,
-];
 
 pub fn pack_capacity(capacity: u64) -> packed::Uint64 {
     capacity.pack()
 }
 
-pub fn build_actual_lock_script_data(
-    blake160_code_hash: &[u8; 32],
-    pubkey_hash: &[u8; PUBKEY_HASH_SIZE],
-) -> Bytes {
+pub fn build_actual_lock_script_data(code_hash: &[u8; 32], args: &[u8; PUBKEY_HASH_SIZE]) -> Bytes {
     Script::new_builder()
-        .code_hash(blake160_code_hash.pack())
+        .code_hash(code_hash.pack())
         .hash_type(Byte::new(ScriptHashType::Data2 as u8))
-        .args(Bytes::from(pubkey_hash.to_vec()).pack())
+        .args(Bytes::from(args.to_vec()).pack())
         .build()
         .as_bytes()
 }
@@ -150,6 +141,10 @@ pub fn generate_type_id(first_input: &CellInput, output_index: u64) -> [u8; HASH
     let mut hash = [0u8; HASH_SIZE];
     hasher.finalize(&mut hash);
     hash
+}
+
+pub fn cell_dep(out_point: OutPoint) -> CellDep {
+    CellDep::new_builder().out_point(out_point).build()
 }
 
 pub fn compute_sighash_all(tx: &TransactionView) -> [u8; 32] {
@@ -259,5 +254,147 @@ impl Signer for UncompressedKeyPair {
         sig_bytes[0..64].copy_from_slice(&signature.to_bytes());
         sig_bytes[64] = recovery_id.to_byte();
         Ok(sig_bytes)
+    }
+}
+
+/// Shared test base for delegate lock tests.
+/// Deploys delegate-lock and always-success binaries, and provides common helpers.
+pub struct DelegateTestBase {
+    pub context: Context,
+    pub delegate_lock_out_point: OutPoint,
+    pub delegate_lock_code_hash: [u8; 32],
+    pub always_success_out_point: OutPoint,
+}
+
+impl DelegateTestBase {
+    pub fn new() -> Self {
+        let mut context = Context::default();
+
+        let delegate_lock_bin: Bytes = Loader::default().load_binary("delegate-lock");
+        let delegate_lock_out_point = context.deploy_cell(delegate_lock_bin.clone());
+        let delegate_lock_code_hash: [u8; 32] = blake2b_256(&delegate_lock_bin);
+
+        let always_success_bin: Bytes =
+            Bytes::from(ckb_always_success_script::ALWAYS_SUCCESS.to_vec());
+        let always_success_out_point = context.deploy_cell(always_success_bin);
+
+        Self {
+            context,
+            delegate_lock_out_point,
+            delegate_lock_code_hash,
+            always_success_out_point,
+        }
+    }
+
+    /// Deploy a binary and return its (OutPoint, code_hash).
+    pub fn deploy_binary(&mut self, name: &str) -> (OutPoint, [u8; 32]) {
+        let bin: Bytes = Loader::default().load_binary(name);
+        let out_point = self.context.deploy_cell(bin.clone());
+        let code_hash: [u8; 32] = blake2b_256(&bin);
+        (out_point, code_hash)
+    }
+
+    pub fn always_success_lock_script(&mut self) -> Script {
+        self.context
+            .build_script(&self.always_success_out_point, Bytes::new())
+            .expect("build always success script")
+    }
+
+    pub fn always_success_cell_dep(&self) -> CellDep {
+        cell_dep(self.always_success_out_point.clone())
+    }
+
+    pub fn setup_type_id(&mut self) -> [u8; HASH_SIZE] {
+        let seed_cell = self.context.create_cell(
+            CellOutput::new_builder()
+                .capacity(pack_capacity(1000))
+                .build(),
+            Bytes::new(),
+        );
+        let seed_input = CellInput::new_builder().previous_output(seed_cell).build();
+        generate_type_id(&seed_input, 0)
+    }
+
+    /// Create a Type ID cell whose data is a serialized Script.
+    pub fn create_type_id_cell(
+        &mut self,
+        type_id: &[u8; HASH_SIZE],
+        code_hash: &[u8; 32],
+        args: &[u8; PUBKEY_HASH_SIZE],
+    ) -> OutPoint {
+        let type_script = Script::new_builder()
+            .code_hash(TYPE_ID_CODE_HASH.pack())
+            .hash_type(Byte::new(ScriptHashType::Type as u8))
+            .args(Bytes::from(type_id.to_vec()).pack())
+            .build();
+        let lock_script = self.always_success_lock_script();
+        let cell_data = build_actual_lock_script_data(code_hash, args);
+        self.context.create_cell(
+            CellOutput::new_builder()
+                .capacity(pack_capacity(1000))
+                .lock(lock_script)
+                .type_(Some(type_script).pack())
+                .build(),
+            cell_data,
+        )
+    }
+
+    pub fn build_delegate_lock_script(&mut self, type_id_prefix: &[u8]) -> Script {
+        self.context
+            .build_script(
+                &self.delegate_lock_out_point,
+                Bytes::from(type_id_prefix.to_vec()),
+            )
+            .expect("build delegate lock script")
+    }
+
+    pub fn create_delegate_locked_cell(
+        &mut self,
+        type_id: &[u8; HASH_SIZE],
+        capacity: u64,
+    ) -> OutPoint {
+        let type_id_prefix = &type_id[0..PUBKEY_HASH_SIZE];
+        let lock_script = self.build_delegate_lock_script(type_id_prefix);
+        self.context.create_cell(
+            CellOutput::new_builder()
+                .capacity(pack_capacity(capacity))
+                .lock(lock_script)
+                .build(),
+            Bytes::new(),
+        )
+    }
+
+    pub fn delegate_lock_cell_dep(&self) -> CellDep {
+        cell_dep(self.delegate_lock_out_point.clone())
+    }
+
+    /// Build an unlock transaction. Always includes delegate_lock as a cell_dep.
+    pub fn build_unlock_tx(
+        &mut self,
+        inputs: Vec<OutPoint>,
+        output_capacity: u64,
+        type_id: &[u8; HASH_SIZE],
+        extra_cell_deps: Vec<CellDep>,
+    ) -> TransactionView {
+        let mut tx_builder = TransactionBuilder::default();
+        for input_out_point in inputs {
+            tx_builder = tx_builder.input(
+                CellInput::new_builder()
+                    .previous_output(input_out_point)
+                    .build(),
+            );
+        }
+        let output = CellOutput::new_builder()
+            .capacity(pack_capacity(output_capacity))
+            .lock(self.build_delegate_lock_script(&type_id[0..PUBKEY_HASH_SIZE]))
+            .build();
+        tx_builder = tx_builder
+            .output(output)
+            .output_data(Bytes::new().pack())
+            .cell_dep(self.delegate_lock_cell_dep());
+        for dep in extra_cell_deps {
+            tx_builder = tx_builder.cell_dep(dep);
+        }
+        tx_builder.build()
     }
 }

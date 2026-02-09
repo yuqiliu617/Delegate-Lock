@@ -4,180 +4,41 @@
 //! when invoked via delegate lock (which passes args via argc/argv).
 
 use crate::{
-    build_actual_lock_script_data, generate_type_id, pack_capacity, sign_tx,
-    verify_and_dump_failed_tx, CompressedKeyPair, Loader, Signer, HASH_SIZE, PUBKEY_HASH_SIZE,
-    SIGNATURE_SIZE, TYPE_ID_CODE_HASH,
+    cell_dep, sign_tx, verify_and_dump_failed_tx, CompressedKeyPair, DelegateTestBase, Signer,
+    SIGNATURE_SIZE,
 };
-use ckb_hash::blake2b_256;
-use ckb_testtool::{
-    ckb_types::{
-        bytes::Bytes,
-        core::{ScriptHashType, TransactionBuilder, TransactionView},
-        packed::*,
-        prelude::*,
-    },
-    context::Context,
+use ckb_testtool::ckb_types::{
+    bytes::Bytes,
+    packed::{OutPoint, WitnessArgs},
+    prelude::*,
 };
 
-/// Test context for secp256k1_blake160_sighash_all with delegate lock.
-struct Secp256k1DelegateTestContext {
-    context: Context,
-    delegate_lock_out_point: OutPoint,
+struct TestContext {
+    base: DelegateTestBase,
     sighash_all_out_point: OutPoint,
     sighash_all_code_hash: [u8; 32],
     secp256k1_data_out_point: OutPoint,
-    always_success_out_point: OutPoint,
 }
 
-impl Secp256k1DelegateTestContext {
+impl TestContext {
     fn new() -> Self {
-        let mut context = Context::default();
-
-        // Load delegate-lock binary
-        let delegate_lock_bin: Bytes = Loader::default().load_binary("delegate-lock");
-        let delegate_lock_out_point = context.deploy_cell(delegate_lock_bin);
-
-        // Load C secp256k1_blake160_sighash_all binary
-        let sighash_all_bin: Bytes =
-            Loader::default().load_binary("secp256k1_blake160_sighash_all");
-        let sighash_all_out_point = context.deploy_cell(sighash_all_bin.clone());
-        let sighash_all_code_hash: [u8; 32] = blake2b_256(&sighash_all_bin)[0..32]
-            .try_into()
-            .expect("hash size");
-
-        // Load secp256k1_data (required by C secp256k1 script for signature verification)
-        let secp256k1_data_bin: Bytes = Loader::default().load_binary("secp256k1_data");
-        let secp256k1_data_out_point = context.deploy_cell(secp256k1_data_bin);
-
-        // Load always-success for Type ID cell lock
-        let always_success_bin: Bytes =
-            Bytes::from(ckb_always_success_script::ALWAYS_SUCCESS.to_vec());
-        let always_success_out_point = context.deploy_cell(always_success_bin);
-
+        let mut base = DelegateTestBase::new();
+        let (sighash_all_out_point, sighash_all_code_hash) =
+            base.deploy_binary("secp256k1_blake160_sighash_all");
+        let (secp256k1_data_out_point, _) = base.deploy_binary("secp256k1_data");
         Self {
-            context,
-            delegate_lock_out_point,
+            base,
             sighash_all_out_point,
             sighash_all_code_hash,
             secp256k1_data_out_point,
-            always_success_out_point,
         }
     }
 
-    fn always_success_lock_script(&mut self) -> Script {
-        self.context
-            .build_script(&self.always_success_out_point, Bytes::new())
-            .expect("build always success script")
-    }
-
-    /// Create a Type ID cell containing the actual lock script (secp256k1_blake160_sighash_all).
-    fn create_type_id_cell(
-        &mut self,
-        type_id: &[u8; HASH_SIZE],
-        pubkey_hash: &[u8; PUBKEY_HASH_SIZE],
-    ) -> OutPoint {
-        let type_script = Script::new_builder()
-            .code_hash(TYPE_ID_CODE_HASH.pack())
-            .hash_type(Byte::new(ScriptHashType::Type as u8))
-            .args(Bytes::from(type_id.to_vec()).pack())
-            .build();
-        let lock_script = self.always_success_lock_script();
-        let cell_data = build_actual_lock_script_data(&self.sighash_all_code_hash, pubkey_hash);
-        self.context.create_cell(
-            CellOutput::new_builder()
-                .capacity(pack_capacity(1000))
-                .lock(lock_script)
-                .type_(Some(type_script).pack())
-                .build(),
-            cell_data,
-        )
-    }
-
-    fn build_delegate_lock_script(&mut self, type_id_prefix: &[u8]) -> Script {
-        self.context
-            .build_script(
-                &self.delegate_lock_out_point,
-                Bytes::from(type_id_prefix.to_vec()),
-            )
-            .expect("build delegate lock script")
-    }
-
-    fn create_delegate_locked_cell(
-        &mut self,
-        type_id: &[u8; HASH_SIZE],
-        capacity: u64,
-    ) -> OutPoint {
-        let type_id_prefix = &type_id[0..PUBKEY_HASH_SIZE];
-        let lock_script = self.build_delegate_lock_script(type_id_prefix);
-        self.context.create_cell(
-            CellOutput::new_builder()
-                .capacity(pack_capacity(capacity))
-                .lock(lock_script)
-                .build(),
-            Bytes::new(),
-        )
-    }
-
-    fn delegate_lock_cell_dep(&self) -> CellDep {
-        CellDep::new_builder()
-            .out_point(self.delegate_lock_out_point.clone())
-            .build()
-    }
-
-    fn sighash_all_cell_dep(&self) -> CellDep {
-        CellDep::new_builder()
-            .out_point(self.sighash_all_out_point.clone())
-            .build()
-    }
-
-    fn secp256k1_data_cell_dep(&self) -> CellDep {
-        CellDep::new_builder()
-            .out_point(self.secp256k1_data_out_point.clone())
-            .build()
-    }
-
-    fn type_id_cell_dep(&self, out_point: OutPoint) -> CellDep {
-        CellDep::new_builder().out_point(out_point).build()
-    }
-
-    fn setup_type_id(&mut self) -> [u8; HASH_SIZE] {
-        let seed_cell = self.context.create_cell(
-            CellOutput::new_builder()
-                .capacity(pack_capacity(1000))
-                .build(),
-            Bytes::new(),
-        );
-        let seed_input = CellInput::new_builder().previous_output(seed_cell).build();
-        generate_type_id(&seed_input, 0)
-    }
-
-    fn build_unlock_tx(
-        &mut self,
-        inputs: Vec<OutPoint>,
-        output_capacity: u64,
-        type_id: &[u8; HASH_SIZE],
-        type_id_cell: OutPoint,
-    ) -> TransactionView {
-        let mut tx_builder = TransactionBuilder::default();
-        for input_out_point in inputs {
-            tx_builder = tx_builder.input(
-                CellInput::new_builder()
-                    .previous_output(input_out_point)
-                    .build(),
-            );
-        }
-        let output = CellOutput::new_builder()
-            .capacity(pack_capacity(output_capacity))
-            .lock(self.build_delegate_lock_script(&type_id[0..20]))
-            .build();
-        tx_builder
-            .output(output)
-            .output_data(Bytes::new().pack())
-            .cell_dep(self.delegate_lock_cell_dep())
-            .cell_dep(self.sighash_all_cell_dep())
-            .cell_dep(self.secp256k1_data_cell_dep())
-            .cell_dep(self.type_id_cell_dep(type_id_cell))
-            .build()
+    fn script_cell_deps(&self) -> Vec<ckb_testtool::ckb_types::packed::CellDep> {
+        vec![
+            cell_dep(self.sighash_all_out_point.clone()),
+            cell_dep(self.secp256k1_data_out_point.clone()),
+        ]
     }
 }
 
@@ -187,15 +48,22 @@ impl Secp256k1DelegateTestContext {
 
 #[test]
 fn test_sighash_all_delegate_unlock_success() {
-    let mut ctx = Secp256k1DelegateTestContext::new();
+    let mut ctx = TestContext::new();
     let owner = CompressedKeyPair::new();
-    let type_id = ctx.setup_type_id();
-    let type_id_cell = ctx.create_type_id_cell(&type_id, owner.pubkey_hash());
-    let locked_cell = ctx.create_delegate_locked_cell(&type_id, 1000);
-    let tx = ctx.build_unlock_tx(vec![locked_cell], 990, &type_id, type_id_cell);
+    let type_id = ctx.base.setup_type_id();
+    let code_hash = ctx.sighash_all_code_hash;
+    let type_id_cell = ctx
+        .base
+        .create_type_id_cell(&type_id, &code_hash, owner.pubkey_hash());
+    let locked_cell = ctx.base.create_delegate_locked_cell(&type_id, 1000);
+    let mut deps = ctx.script_cell_deps();
+    deps.push(cell_dep(type_id_cell));
+    let tx = ctx
+        .base
+        .build_unlock_tx(vec![locked_cell], 990, &type_id, deps);
     let tx = sign_tx(tx, &owner).expect("sign tx");
-    let cycles =
-        verify_and_dump_failed_tx(&ctx.context, &tx, 100_000_000).expect("unlock should succeed");
+    let cycles = verify_and_dump_failed_tx(&ctx.base.context, &tx, 100_000_000)
+        .expect("unlock should succeed");
     println!(
         "secp256k1_blake160_sighash_all delegate unlock cycles: {}",
         cycles
@@ -204,20 +72,22 @@ fn test_sighash_all_delegate_unlock_success() {
 
 #[test]
 fn test_sighash_all_delegate_multiple_cells() {
-    let mut ctx = Secp256k1DelegateTestContext::new();
+    let mut ctx = TestContext::new();
     let owner = CompressedKeyPair::new();
-    let type_id = ctx.setup_type_id();
-    let type_id_cell = ctx.create_type_id_cell(&type_id, owner.pubkey_hash());
-    let locked_cell_1 = ctx.create_delegate_locked_cell(&type_id, 1000);
-    let locked_cell_2 = ctx.create_delegate_locked_cell(&type_id, 2000);
-    let tx = ctx.build_unlock_tx(
-        vec![locked_cell_1, locked_cell_2],
-        2900,
-        &type_id,
-        type_id_cell,
-    );
+    let type_id = ctx.base.setup_type_id();
+    let code_hash = ctx.sighash_all_code_hash;
+    let type_id_cell = ctx
+        .base
+        .create_type_id_cell(&type_id, &code_hash, owner.pubkey_hash());
+    let locked_cell_1 = ctx.base.create_delegate_locked_cell(&type_id, 1000);
+    let locked_cell_2 = ctx.base.create_delegate_locked_cell(&type_id, 2000);
+    let mut deps = ctx.script_cell_deps();
+    deps.push(cell_dep(type_id_cell));
+    let tx = ctx
+        .base
+        .build_unlock_tx(vec![locked_cell_1, locked_cell_2], 2900, &type_id, deps);
     let tx = sign_tx(tx, &owner).expect("sign tx");
-    let cycles = verify_and_dump_failed_tx(&ctx.context, &tx, 100_000_000)
+    let cycles = verify_and_dump_failed_tx(&ctx.base.context, &tx, 100_000_000)
         .expect("multiple cells unlock should succeed");
     println!(
         "secp256k1_blake160_sighash_all multiple cells cycles: {}",
@@ -227,43 +97,39 @@ fn test_sighash_all_delegate_multiple_cells() {
 
 #[test]
 fn test_sighash_all_delegate_wrong_signature() {
-    let mut ctx = Secp256k1DelegateTestContext::new();
+    let mut ctx = TestContext::new();
     let owner = CompressedKeyPair::new();
     let attacker = CompressedKeyPair::new();
-    let type_id = ctx.setup_type_id();
-    let type_id_cell = ctx.create_type_id_cell(&type_id, owner.pubkey_hash());
-    let locked_cell = ctx.create_delegate_locked_cell(&type_id, 1000);
-    let tx = ctx.build_unlock_tx(vec![locked_cell], 990, &type_id, type_id_cell);
+    let type_id = ctx.base.setup_type_id();
+    let code_hash = ctx.sighash_all_code_hash;
+    let type_id_cell = ctx
+        .base
+        .create_type_id_cell(&type_id, &code_hash, owner.pubkey_hash());
+    let locked_cell = ctx.base.create_delegate_locked_cell(&type_id, 1000);
+    let mut deps = ctx.script_cell_deps();
+    deps.push(cell_dep(type_id_cell));
+    let tx = ctx
+        .base
+        .build_unlock_tx(vec![locked_cell], 990, &type_id, deps);
     // Sign with attacker's key instead of owner's
     let tx = sign_tx(tx, &attacker).expect("sign tx");
-    let result = verify_and_dump_failed_tx(&ctx.context, &tx, 100_000_000);
+    let result = verify_and_dump_failed_tx(&ctx.base.context, &tx, 100_000_000);
     assert!(result.is_err(), "Should fail with wrong signature");
 }
 
 #[test]
 fn test_sighash_all_delegate_missing_type_id_cell() {
-    let mut ctx = Secp256k1DelegateTestContext::new();
+    let mut ctx = TestContext::new();
     let owner = CompressedKeyPair::new();
-    let type_id = ctx.setup_type_id();
+    let type_id = ctx.base.setup_type_id();
     // Don't create the type_id_cell, so delegate lock can't find it
-    let locked_cell = ctx.create_delegate_locked_cell(&type_id, 1000);
-    let input = CellInput::new_builder()
-        .previous_output(locked_cell)
-        .build();
-    let output = CellOutput::new_builder()
-        .capacity(pack_capacity(990))
-        .lock(ctx.build_delegate_lock_script(&type_id[0..20]))
-        .build();
-    let tx = TransactionBuilder::default()
-        .input(input)
-        .output(output)
-        .output_data(Bytes::new().pack())
-        .cell_dep(ctx.delegate_lock_cell_dep())
-        .cell_dep(ctx.sighash_all_cell_dep())
-        // Missing: type_id_cell_dep
-        .build();
+    let locked_cell = ctx.base.create_delegate_locked_cell(&type_id, 1000);
+    let deps = vec![cell_dep(ctx.sighash_all_out_point.clone())];
+    let tx = ctx
+        .base
+        .build_unlock_tx(vec![locked_cell], 990, &type_id, deps);
     let tx = sign_tx(tx, &owner).expect("sign tx");
-    let result = verify_and_dump_failed_tx(&ctx.context, &tx, 100_000_000);
+    let result = verify_and_dump_failed_tx(&ctx.base.context, &tx, 100_000_000);
     assert!(
         result.is_err(),
         "Should fail when Type ID cell is not in deps"
@@ -272,12 +138,19 @@ fn test_sighash_all_delegate_missing_type_id_cell() {
 
 #[test]
 fn test_sighash_all_delegate_corrupted_witness() {
-    let mut ctx = Secp256k1DelegateTestContext::new();
+    let mut ctx = TestContext::new();
     let owner = CompressedKeyPair::new();
-    let type_id = ctx.setup_type_id();
-    let type_id_cell = ctx.create_type_id_cell(&type_id, owner.pubkey_hash());
-    let locked_cell = ctx.create_delegate_locked_cell(&type_id, 1000);
-    let tx = ctx.build_unlock_tx(vec![locked_cell], 990, &type_id, type_id_cell);
+    let type_id = ctx.base.setup_type_id();
+    let code_hash = ctx.sighash_all_code_hash;
+    let type_id_cell = ctx
+        .base
+        .create_type_id_cell(&type_id, &code_hash, owner.pubkey_hash());
+    let locked_cell = ctx.base.create_delegate_locked_cell(&type_id, 1000);
+    let mut deps = ctx.script_cell_deps();
+    deps.push(cell_dep(type_id_cell));
+    let tx = ctx
+        .base
+        .build_unlock_tx(vec![locked_cell], 990, &type_id, deps);
     // Use corrupted signature (wrong size)
     let corrupted_signature = Bytes::from(vec![0u8; SIGNATURE_SIZE - 1]);
     let witness_args = WitnessArgs::new_builder()
@@ -287,6 +160,6 @@ fn test_sighash_all_delegate_corrupted_witness() {
         .as_advanced_builder()
         .witness(witness_args.as_bytes().pack())
         .build();
-    let result = verify_and_dump_failed_tx(&ctx.context, &tx, 100_000_000);
+    let result = verify_and_dump_failed_tx(&ctx.base.context, &tx, 100_000_000);
     assert!(result.is_err(), "Should fail with corrupted witness");
 }
