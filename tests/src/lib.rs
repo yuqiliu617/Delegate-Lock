@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 #[cfg(test)]
+mod delegate_lock;
+#[cfg(test)]
 mod secp256k1_blake160_c;
 #[cfg(test)]
 mod secp256k1_blake160_rust;
