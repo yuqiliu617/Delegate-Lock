@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 
+default-members = ["tests"]
+
 members = [
 	# @@INSERTION_POINT@@
 	"contracts/ccc-btc",

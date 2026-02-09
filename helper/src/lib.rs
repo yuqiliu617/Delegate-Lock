@@ -1,5 +1,4 @@
 #![no_std]
-#![no_main]
 extern crate alloc;
 pub mod blake2b;
 pub mod error;
