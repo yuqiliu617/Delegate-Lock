@@ -155,6 +155,41 @@ fn hex_digit_to_value(c: u8) -> Result<u8, Error> {
 }
 ```
 
+## Chained Delegation
+
+Delegate Lock supports chaining: a Type ID cell can point to Delegate Lock itself as the actual lock script. This creates a two-level delegation:
+
+```text
+Outer Delegate Lock → Inner Delegate Lock (same binary) → Actual Lock Script
+```
+
+The outer Delegate Lock finds its Type ID cell, which stores a Script pointing to the Delegate Lock binary with inner args. It then `ckb_exec`s Delegate Lock with those args via the delegation convention. The inner instance receives its args through `argv`, finds a second Type ID cell, and finally executes the actual lock script.
+
+### Unlock with Chained Delegation
+
+```text
+CellDeps:
+    Outer Type ID Cell:
+        Type:
+            args: <outer type id>
+        Data: <Script pointing to Delegate Lock with inner type id prefix as args>
+    Inner Type ID Cell:
+        Type:
+            args: <inner type id>
+        Data: <actual lock script, molecule-encoded>
+    Actual Lock Script Binary Cell:
+        Data: <actual lock script binary>
+Inputs:
+    Delegate Lock Cell:
+        Lock:
+            code_hash: <Delegate Lock code hash>
+            args: <first 20 bytes of outer type id>
+Witnesses:
+    <as required by the actual lock script>
+```
+
+This enables use cases where an intermediate authority can be updated independently of the final lock script.
+
 ## Migrated Lock Scripts
 
 The following lock scripts have been adapted to work with Delegate Lock by reading arguments from `argv` instead of `ckb_load_script`:

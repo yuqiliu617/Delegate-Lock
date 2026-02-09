@@ -20,6 +20,7 @@ use ckb_std::{
     syscalls,
 };
 use core::ffi::CStr;
+use delegate_lock_helper::{decode_hex, null_terminate, DELEGATE_LOCK_MAGIC};
 use error::Error;
 
 #[cfg(not(any(feature = "library", test)))]
@@ -79,9 +80,6 @@ fn encode_hex(data: &[u8]) -> CString {
     unsafe { CString::from_vec_unchecked(hex) }
 }
 
-const DELEGATE_LOCK_MAGIC: &CStr =
-    unsafe { CStr::from_bytes_with_nul_unchecked(b"DELEGATE_LOCK\0") };
-
 /// Execute the actual lock script using ckb_exec.
 fn exec_actual_lock_script(script: &Script) -> Result<(), Error> {
     let code_hash: Hash = script.code_hash().unpack();
@@ -93,20 +91,34 @@ fn exec_actual_lock_script(script: &Script) -> Result<(), Error> {
         4 => ScriptHashType::Data2,
         _ => return Err(Error::Encoding),
     };
+    let magic =
+        unsafe { CStr::from_bytes_with_nul_unchecked(null_terminate!(DELEGATE_LOCK_MAGIC)) };
     let script_args: Bytes = script.args().unpack();
     let args_cstr = encode_hex(&script_args);
-    let argv: [&CStr; 2] = [DELEGATE_LOCK_MAGIC, &args_cstr];
+    let argv: [&CStr; 2] = [magic, &args_cstr];
     exec_cell(&code_hash, hash_type, &argv)?;
     panic!("unreachable");
 }
 
 fn run() -> Result<(), Error> {
-    let script = ckb_std::high_level::load_script()?;
-    let args: Bytes = script.args().unpack();
-    if args.len() != TYPE_ID_PREFIX_SIZE {
-        return Err(Error::ArgsInvalid);
-    }
-    let verified_args: TypeIdPrefix = (&args[..]).try_into().map_err(|_| Error::ArgsInvalid)?;
+    let argv = ckb_std::env::argv();
+    let verified_args: TypeIdPrefix =
+        if argv.len() == 2 && argv[0].to_bytes() == DELEGATE_LOCK_MAGIC {
+            let args = decode_hex(argv[1].to_bytes())?;
+            if args.len() != TYPE_ID_PREFIX_SIZE {
+                return Err(Error::ArgsInvalid);
+            }
+            args.try_into().map_err(|_| Error::ArgsInvalid)?
+        } else if argv.is_empty() {
+            let script = ckb_std::high_level::load_script()?;
+            let args: Bytes = script.args().unpack();
+            if args.len() != TYPE_ID_PREFIX_SIZE {
+                return Err(Error::ArgsInvalid);
+            }
+            (&args[..]).try_into().map_err(|_| Error::ArgsInvalid)?
+        } else {
+            return Err(Error::ArgsInvalid);
+        };
     let cell_index = find_type_id_cell(&verified_args)?;
     let cell_data = load_cell_data(cell_index, Source::CellDep)?;
     ScriptReader::verify(&cell_data, false).map_err(|_| Error::Encoding)?;

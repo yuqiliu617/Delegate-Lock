@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 ckb-std = "1.0.2"
+delegate-lock-helper = { path = "../../helper" }
 
 [features]
 library = []

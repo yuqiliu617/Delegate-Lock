@@ -108,3 +108,21 @@ fn calculate_inputs_len() -> Result<usize, Error> {
     }
     Ok(i)
 }
+
+#[macro_export]
+macro_rules! null_terminate {
+    ($bytes:expr) => {{
+        const INPUT: &[u8] = $bytes;
+        const LEN: usize = INPUT.len() + 1;
+        const OUTPUT: &[u8] = &{
+            let mut buf = [0u8; LEN];
+            let mut i = 0;
+            while i < INPUT.len() {
+                buf[i] = INPUT[i];
+                i += 1;
+            }
+            buf
+        };
+        OUTPUT
+    }};
+}

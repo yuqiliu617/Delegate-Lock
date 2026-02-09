@@ -15,6 +15,15 @@ pub enum Error {
     Unknown,
 }
 
+impl From<delegate_lock_helper::error::Error> for Error {
+    fn from(err: delegate_lock_helper::error::Error) -> Self {
+        match err {
+            delegate_lock_helper::error::Error::HexDecoding => Self::Encoding,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 impl From<SysError> for Error {
     fn from(err: SysError) -> Self {
         match err {

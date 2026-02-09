@@ -769,6 +769,7 @@ name = "delegate-lock"
 version = "0.1.0"
 dependencies = [
  "ckb-std",
+ "delegate-lock-helper",
 ]
 
 [[package]]
