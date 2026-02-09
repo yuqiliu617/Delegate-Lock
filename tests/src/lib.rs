@@ -122,12 +122,13 @@ pub fn verify_and_dump_failed_tx(
 pub const PUBKEY_HASH_SIZE: usize = 20;
 pub const HASH_SIZE: usize = 32;
 pub const SIGNATURE_SIZE: usize = 65;
+pub type Hash = [u8; HASH_SIZE];
 
 pub fn pack_capacity(capacity: u64) -> packed::Uint64 {
     capacity.pack()
 }
 
-pub fn build_actual_lock_script_data(code_hash: &[u8; 32], args: &[u8; PUBKEY_HASH_SIZE]) -> Bytes {
+pub fn build_actual_lock_script_data(code_hash: &Hash, args: &[u8; PUBKEY_HASH_SIZE]) -> Bytes {
     Script::new_builder()
         .code_hash(code_hash.pack())
         .hash_type(Byte::new(ScriptHashType::Data2 as u8))
@@ -149,19 +150,58 @@ pub fn cell_dep(out_point: OutPoint) -> CellDep {
     CellDep::new_builder().out_point(out_point).build()
 }
 
-pub fn compute_sighash_all(tx: &TransactionView) -> [u8; 32] {
+pub fn compute_sighash_all(tx: &TransactionView) -> Hash {
     let tx_hash = tx.hash();
-    let zero_lock = Bytes::from(vec![0u8; SIGNATURE_SIZE]);
-    // FIXME
-    let zeroed_witness = WitnessArgs::new_builder()
-        .lock(Some(zero_lock).pack())
-        .build();
-    let zeroed_witness_bytes = zeroed_witness.as_bytes();
+    let witnesses_count = tx.witnesses().len();
+    let inputs_count = tx.inputs().len();
+
     let mut hasher = ckb_hash::new_blake2b();
     hasher.update(tx_hash.as_slice());
-    hasher.update(&(zeroed_witness_bytes.len() as u64).to_le_bytes());
-    hasher.update(&zeroed_witness_bytes);
-    let mut hash = [0u8; 32];
+
+    // First witness: zero the lock field, preserving input_type and output_type
+    let zeroed_witness = if !tx.witnesses().is_empty() {
+        let witness_data: Bytes = tx.witnesses().get(0).unwrap().unpack();
+        let witness_args = WitnessArgs::new_unchecked(witness_data);
+        let lock_len = witness_args
+            .lock()
+            .to_opt()
+            .map(|l| l.raw_data().len())
+            .unwrap_or(SIGNATURE_SIZE);
+        let zero_lock: Bytes = vec![0u8; lock_len].into();
+        witness_args
+            .as_builder()
+            .lock(Some(zero_lock).pack())
+            .build()
+            .as_bytes()
+    } else {
+        let zero_lock: Bytes = vec![0u8; SIGNATURE_SIZE].into();
+        WitnessArgs::new_builder()
+            .lock(Some(zero_lock).pack())
+            .build()
+            .as_bytes()
+    };
+    hasher.update(&(zeroed_witness.len() as u64).to_le_bytes());
+    hasher.update(&zeroed_witness);
+
+    if !tx.witnesses().is_empty() {
+        // Remaining witnesses in the same script group (indices 1..inputs_count).
+        // Assumes all inputs share the same lock script, which holds for our tests.
+        for i in 1..inputs_count {
+            if let Some(witness) = tx.witnesses().get(i) {
+                let data: Bytes = witness.unpack();
+                hasher.update(&(data.len() as u64).to_le_bytes());
+                hasher.update(&data);
+            }
+        }
+        // Trailing witnesses (indices >= inputs_count)
+        for i in inputs_count..witnesses_count {
+            let data: Bytes = tx.witnesses().get(i).unwrap().unpack();
+            hasher.update(&(data.len() as u64).to_le_bytes());
+            hasher.update(&data);
+        }
+    }
+
+    let mut hash = [0u8; HASH_SIZE];
     hasher.finalize(&mut hash);
     hash
 }
@@ -169,20 +209,36 @@ pub fn compute_sighash_all(tx: &TransactionView) -> [u8; 32] {
 /// Trait for key pairs that can sign transactions.
 pub trait Signer {
     fn pubkey_hash(&self) -> &[u8; PUBKEY_HASH_SIZE];
-    fn sign(&self, prehash: &[u8; 32]) -> Result<[u8; SIGNATURE_SIZE], SigError>;
+    fn sign(&self, prehash: &Hash) -> Result<[u8; SIGNATURE_SIZE], SigError>;
 }
 
 pub fn sign_tx<S: Signer>(tx: TransactionView, signer: &S) -> Result<TransactionView, SigError> {
     let sighash = compute_sighash_all(&tx);
     let signature = signer.sign(&sighash)?;
-    let witness = Bytes::from(signature.to_vec());
-    let witness_args = WitnessArgs::new_builder()
-        .lock(Some(witness).pack())
-        .build();
-    Ok(tx
-        .as_advanced_builder()
-        .witness(witness_args.as_bytes().pack())
-        .build())
+    let lock_bytes = Bytes::from(signature.to_vec());
+
+    // Build the signed witness, preserving input_type/output_type if present
+    let signed_witness = if !tx.witnesses().is_empty() {
+        let existing: Bytes = tx.witnesses().get(0).unwrap().unpack();
+        WitnessArgs::new_unchecked(existing)
+            .as_builder()
+            .lock(Some(lock_bytes).pack())
+            .build()
+    } else {
+        WitnessArgs::new_builder()
+            .lock(Some(lock_bytes).pack())
+            .build()
+    };
+
+    // Replace witness[0] (or insert it if none exist)
+    let mut witnesses: Vec<packed::Bytes> = tx.witnesses().into_iter().collect();
+    if witnesses.is_empty() {
+        witnesses.push(signed_witness.as_bytes().pack());
+    } else {
+        witnesses[0] = signed_witness.as_bytes().pack();
+    }
+
+    Ok(tx.as_advanced_builder().set_witnesses(witnesses).build())
 }
 
 /// Key pair using compressed public key for blake160 hash (for C scripts).
@@ -213,7 +269,7 @@ impl Signer for CompressedKeyPair {
         &self.pubkey_hash
     }
 
-    fn sign(&self, prehash: &[u8; 32]) -> Result<[u8; SIGNATURE_SIZE], SigError> {
+    fn sign(&self, prehash: &Hash) -> Result<[u8; SIGNATURE_SIZE], SigError> {
         let (signature, recovery_id) = self.signing_key.sign_prehash_recoverable(prehash)?;
         let mut sig_bytes = [0u8; SIGNATURE_SIZE];
         sig_bytes[0..64].copy_from_slice(&signature.to_bytes());
@@ -250,7 +306,7 @@ impl Signer for UncompressedKeyPair {
         &self.pubkey_hash
     }
 
-    fn sign(&self, prehash: &[u8; 32]) -> Result<[u8; SIGNATURE_SIZE], SigError> {
+    fn sign(&self, prehash: &Hash) -> Result<[u8; SIGNATURE_SIZE], SigError> {
         let (signature, recovery_id) = self.signing_key.sign_prehash_recoverable(prehash)?;
         let mut sig_bytes = [0u8; SIGNATURE_SIZE];
         sig_bytes[0..64].copy_from_slice(&signature.to_bytes());
@@ -264,7 +320,7 @@ impl Signer for UncompressedKeyPair {
 pub struct DelegateTestBase {
     pub context: Context,
     pub delegate_lock_out_point: OutPoint,
-    pub delegate_lock_code_hash: [u8; 32],
+    pub delegate_lock_code_hash: Hash,
     pub always_success_out_point: OutPoint,
 }
 
@@ -274,7 +330,7 @@ impl DelegateTestBase {
 
         let delegate_lock_bin: Bytes = Loader::default().load_binary("delegate-lock");
         let delegate_lock_out_point = context.deploy_cell(delegate_lock_bin.clone());
-        let delegate_lock_code_hash: [u8; 32] = blake2b_256(&delegate_lock_bin);
+        let delegate_lock_code_hash: Hash = blake2b_256(&delegate_lock_bin);
 
         let always_success_bin: Bytes =
             Bytes::from(ckb_always_success_script::ALWAYS_SUCCESS.to_vec());
@@ -289,10 +345,10 @@ impl DelegateTestBase {
     }
 
     /// Deploy a binary and return its (OutPoint, code_hash).
-    pub fn deploy_binary(&mut self, name: &str) -> (OutPoint, [u8; 32]) {
+    pub fn deploy_binary(&mut self, name: &str) -> (OutPoint, Hash) {
         let bin: Bytes = Loader::default().load_binary(name);
         let out_point = self.context.deploy_cell(bin.clone());
-        let code_hash: [u8; 32] = blake2b_256(&bin);
+        let code_hash: Hash = blake2b_256(&bin);
         (out_point, code_hash)
     }
 
@@ -321,7 +377,7 @@ impl DelegateTestBase {
     pub fn create_type_id_cell(
         &mut self,
         type_id: &[u8; HASH_SIZE],
-        code_hash: &[u8; 32],
+        code_hash: &Hash,
         args: &[u8; PUBKEY_HASH_SIZE],
     ) -> OutPoint {
         let type_script = Script::new_builder()
