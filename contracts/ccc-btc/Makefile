@@ -6,10 +6,11 @@ TOP := $(cur_dir)
 # RUSTFLAGS that are likely to be tweaked by developers. For example,
 # while we enable debug logs by default here, some might want to strip them
 # for minimal code size / consumed cycles.
-CUSTOM_RUSTFLAGS := --cfg debug_assertions
+CUSTOM_RUSTFLAGS := -C debug-assertions
 # RUSTFLAGS that are less likely to be tweaked by developers. Most likely
 # one would want to keep the default values here.
-FULL_RUSTFLAGS := -C target-feature=+zba,+zbb,+zbc,+zbs $(CUSTOM_RUSTFLAGS)
+# -a disables atomic instructions (amoadd, etc.) which are not supported by CKB-VM.
+FULL_RUSTFLAGS := -C target-feature=+zba,+zbb,+zbc,+zbs,-a $(CUSTOM_RUSTFLAGS)
 # Additional cargo args to append here. For example, one can use
 # make test CARGO_ARGS="-- --nocapture" so as to inspect data emitted to
 # stdout in unit tests
