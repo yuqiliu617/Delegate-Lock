@@ -6,7 +6,7 @@ Delegate Lock is a lock script that proxies verification to another script store
 
 ### Delegate Lock Args
 
-The `args` field stores the first 20 bytes (blake160) of the [Type ID](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#type-id) used by the cell containing the actual lock script. This truncation follows the same convention as other CKB lock scripts and provides sufficient collision resistance while minimizing on-chain storage.
+The `args` field stores the blake160 hash of the [type script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#type-id) of the Type ID cell containing the actual lock script. This truncation follows the same convention as other CKB lock scripts and provides sufficient collision resistance while minimizing on-chain storage.
 
 ### Witness
 
@@ -42,7 +42,7 @@ Outputs:
         Lock:
             code_hash: <Delegate Lock code hash>
             hash_type: type
-            args: <first 20 bytes of type id>
+            args: <blake160 hash of the Type ID cell's type script>
 ```
 
 ### Unlock a Cell
@@ -67,7 +67,7 @@ Inputs:
         Lock:
             code_hash: <Delegate Lock code hash>
             hash_type: type
-            args: <first 20 bytes of type id>
+            args: <blake160 hash of the Type ID cell's type script>
 Witnesses:
     <as required by the actual lock script>
 ```
@@ -104,7 +104,7 @@ CellDeps:
     Outer Type ID Cell:
         Type:
             args: <outer type id>
-        Data: <Script pointing to Delegate Lock with inner type id prefix as args>
+        Data: <Script pointing to Delegate Lock with blake160(inner type script) as args>
     Inner Type ID Cell:
         Type:
             args: <inner type id>
@@ -115,7 +115,7 @@ Inputs:
     Delegate Lock Cell:
         Lock:
             code_hash: <Delegate Lock code hash>
-            args: <first 20 bytes of outer type id>
+            args: <blake160 hash of the Type ID cell's type script>
 Witnesses:
     <as required by the actual lock script>
 ```
