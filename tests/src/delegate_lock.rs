@@ -4,8 +4,8 @@
 //! outer delegate-lock → inner delegate-lock (same binary, via argv) → actual lock script.
 
 use crate::{
-    cell_dep, sign_tx, verify_and_dump_failed_tx, DelegateTestBase, Signer, UncompressedKeyPair,
-    PUBKEY_HASH_SIZE,
+    cell_dep, sign_tx, type_id_script_hash, verify_and_dump_failed_tx, DelegateTestBase, Signer,
+    UncompressedKeyPair, PUBKEY_HASH_SIZE,
 };
 use ckb_testtool::ckb_types::packed::{CellDep, OutPoint};
 
@@ -46,8 +46,10 @@ fn test_chained_delegate_unlock_success() {
 
     // Outer type ID cell: points to delegate-lock with inner_type_id_prefix as args
     let outer_type_id = ctx.base.setup_type_id();
-    let inner_type_id_prefix: [u8; PUBKEY_HASH_SIZE] =
-        inner_type_id[0..PUBKEY_HASH_SIZE].try_into().unwrap();
+    let inner_type_script_hash = type_id_script_hash(&inner_type_id);
+    let inner_type_id_prefix: [u8; PUBKEY_HASH_SIZE] = inner_type_script_hash[0..PUBKEY_HASH_SIZE]
+        .try_into()
+        .unwrap();
     let delegate_lock_code_hash = ctx.base.delegate_lock_code_hash;
     let outer_type_id_cell = ctx.base.create_type_id_cell(
         &outer_type_id,
@@ -83,8 +85,10 @@ fn test_chained_delegate_wrong_signature() {
             .create_type_id_cell(&inner_type_id, &blake160_code_hash, owner.pubkey_hash());
 
     let outer_type_id = ctx.base.setup_type_id();
-    let inner_type_id_prefix: [u8; PUBKEY_HASH_SIZE] =
-        inner_type_id[0..PUBKEY_HASH_SIZE].try_into().unwrap();
+    let inner_type_script_hash = type_id_script_hash(&inner_type_id);
+    let inner_type_id_prefix: [u8; PUBKEY_HASH_SIZE] = inner_type_script_hash[0..PUBKEY_HASH_SIZE]
+        .try_into()
+        .unwrap();
     let delegate_lock_code_hash = ctx.base.delegate_lock_code_hash;
     let outer_type_id_cell = ctx.base.create_type_id_cell(
         &outer_type_id,
@@ -117,8 +121,10 @@ fn test_chained_delegate_missing_inner_type_id_cell() {
     // Don't create inner type ID cell — inner delegate-lock won't find it
 
     let outer_type_id = ctx.base.setup_type_id();
-    let inner_type_id_prefix: [u8; PUBKEY_HASH_SIZE] =
-        inner_type_id[0..PUBKEY_HASH_SIZE].try_into().unwrap();
+    let inner_type_script_hash = type_id_script_hash(&inner_type_id);
+    let inner_type_id_prefix: [u8; PUBKEY_HASH_SIZE] = inner_type_script_hash[0..PUBKEY_HASH_SIZE]
+        .try_into()
+        .unwrap();
     let delegate_lock_code_hash = ctx.base.delegate_lock_code_hash;
     let outer_type_id_cell = ctx.base.create_type_id_cell(
         &outer_type_id,
