@@ -20,7 +20,7 @@ use ckb_std::{
     syscalls,
 };
 use core::ffi::CStr;
-use delegate_lock_helper::{decode_hex, null_terminate, DELEGATE_LOCK_MAGIC};
+use delegate_lock_helper::{blake2b::blake160, decode_hex, null_terminate, DELEGATE_LOCK_MAGIC};
 use error::Error;
 
 #[cfg(not(any(feature = "library", test)))]
@@ -34,33 +34,23 @@ const TYPE_ID_PREFIX_SIZE: usize = 20;
 type Hash = [u8; HASH_SIZE];
 type TypeIdPrefix = [u8; TYPE_ID_PREFIX_SIZE];
 
-pub const TYPE_ID_CODE_HASH: Hash = *b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0TYPE_ID";
-
-/// Find a cell in cell_deps whose type script args starts with the given type_id prefix.
-fn find_type_id_cell(type_id_prefix: &TypeIdPrefix) -> Result<usize, Error> {
+/// Find a cell in cell_deps whose type script hash (blake160) matches the given prefix.
+fn find_type_id_cell(type_script_hash_prefix: &TypeIdPrefix) -> Result<usize, Error> {
     let mut buf = [0u8; 256];
     for index in 0.. {
-        // Try to load the type script of the cell at this index
         let result =
             syscalls::load_cell_by_field(&mut buf, 0, index, Source::CellDep, CellField::Type);
         match result {
             Ok(len) => {
-                if ScriptReader::verify(&buf[..len], false).is_ok() {
-                    let type_script = Script::new_unchecked(Bytes::copy_from_slice(&buf[..len]));
-                    let code_hash: Hash = type_script.code_hash().unpack();
-                    if code_hash == TYPE_ID_CODE_HASH
-                        && type_script.hash_type() == ScriptHashType::Type.into()
-                        && type_script.args().raw_data().starts_with(type_id_prefix)
-                    {
-                        return Ok(index);
-                    }
+                if blake160(&buf[..len]) == *type_script_hash_prefix {
+                    return Ok(index);
                 }
             }
             Err(ckb_std::error::SysError::IndexOutOfBound) => {
                 break;
             }
             _ => {
-                // Mismatched or other errors, continue searching
+                // No type script or other errors, continue searching
             }
         }
     }
