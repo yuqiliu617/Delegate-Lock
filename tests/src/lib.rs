@@ -156,6 +156,17 @@ pub fn cell_dep(out_point: OutPoint) -> CellDep {
     CellDep::new_builder().out_point(out_point).build()
 }
 
+/// Compute the blake2b hash of the Type ID cell's type script for a given type_id.
+/// Delegate lock args are the first 20 bytes (blake160) of this hash.
+pub fn type_id_script_hash(type_id: &[u8; HASH_SIZE]) -> Hash {
+    let type_script = Script::new_builder()
+        .code_hash(TYPE_ID_CODE_HASH.pack())
+        .hash_type(Byte::new(ScriptHashType::Type as u8))
+        .args(Bytes::from(type_id.to_vec()).pack())
+        .build();
+    blake2b_256(type_script.as_slice())
+}
+
 pub fn compute_sighash_all(tx: &TransactionView) -> Hash {
     let tx_hash = tx.hash();
     let witnesses_count = tx.witnesses().len();
@@ -417,8 +428,9 @@ impl DelegateTestBase {
         type_id: &[u8; HASH_SIZE],
         capacity: u64,
     ) -> OutPoint {
-        let type_id_prefix = &type_id[0..PUBKEY_HASH_SIZE];
-        let lock_script = self.build_delegate_lock_script(type_id_prefix);
+        let hash = type_id_script_hash(type_id);
+        let hash_prefix = &hash[0..PUBKEY_HASH_SIZE];
+        let lock_script = self.build_delegate_lock_script(hash_prefix);
         self.context.create_cell(
             CellOutput::new_builder()
                 .capacity(pack_capacity(capacity))
@@ -448,9 +460,10 @@ impl DelegateTestBase {
                     .build(),
             );
         }
+        let hash = type_id_script_hash(type_id);
         let output = CellOutput::new_builder()
             .capacity(pack_capacity(output_capacity))
-            .lock(self.build_delegate_lock_script(&type_id[0..PUBKEY_HASH_SIZE]))
+            .lock(self.build_delegate_lock_script(&hash[0..PUBKEY_HASH_SIZE]))
             .build();
         tx_builder = tx_builder
             .output(output)
